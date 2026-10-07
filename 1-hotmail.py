@@ -70,12 +70,17 @@ FREE_CHECK_LIMIT = 50
 PREMIUM_CHECK_LIMIT = 5000
 KEYWORD_FREE_LIMIT = 3
 CAPTURE_FREE_LIMIT = 3
+FREE_KEYWORD_LIMIT = 5
+PREMIUM_KEYWORD_LIMIT = 50
+FREE_CAPTURE_LIMIT = 3
 SMS_COUNT = 41
 
 # ── LOG Çekme ──
 LOG_PRICE = 600
 LOG_FREE_LIMIT = 3
 LOG_FREE_MAX = 100
+LOG_API_BASE = "https://site-viphesab.my-board.org/log.php"
+LOG_AUTH = "@gaynotcu"
 
 # ── Telegram ID Sorgu ──
 TGID_FREE_LIMIT = 1
@@ -6288,24 +6293,53 @@ def register_handlers(bot_instance):
                 except: pass
                 return
             if data == "tool_hotmail":
-                user_name = get_user_name(uid); keywords = get_user_keywords(uid)
-                limit_text = get_keyword_limit_text(uid); is_prem = is_premium(uid)
-                capture_left = get_capture_limit_text(uid)
-                try: bot_instance.answer_callback_query(call.id)
-                except: pass
                 try:
-                    bot_instance.edit_message_text(
-                        f"📧 **HOTMAIL CHECKER & CAPTURE**\n━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"👤 Kullanıcı: {user_name}\n🔖 Keyword: {', '.join(keywords)}\n"
+                    bot_instance.answer_callback_query(call.id)
+                except Exception:
+                    pass
+                try:
+                    user_name = get_user_name(uid)
+                    keywords = get_user_keywords(uid)
+                    limit_text = get_keyword_limit_text(uid)
+                    is_prem = is_premium(uid)
+                    capture_left = get_capture_limit_text(uid)
+                    kw_txt = ", ".join(keywords) if keywords else "-"
+                    txt = (
+                        "📧 <b>HOTMAIL CHECKER & CAPTURE</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"👤 Kullanıcı: {user_name}\n"
+                        f"🔖 Keyword: {kw_txt}\n"
                         f"📊 Keyword Limit: {limit_text}\n"
                         f"📧 Hotmail: {'⭐ Premium (Sınırsız)' if is_prem else f'🆓 Free ({FREE_CHECK_LIMIT} satır)'}\n"
                         f"📸 Capture: {'⭐ Premium (Sınırsız)' if is_prem else f'🆓 Free ({capture_left} kaldı)'}\n"
-                        f"📌 Aşağıdaki menüden işlem yapın:",
-                        call.message.chat.id, call.message.message_id, reply_markup=hotmail_keyboard(uid))
-                except:
-                    bot_instance.send_message(call.message.chat.id,
-                        "📧 **HOTMAIL CHECKER & CAPTURE**\n📌 Aşağıdaki menüden işlem yapın:",
-                        reply_markup=hotmail_keyboard(uid))
+                        "📌 Aşağıdaki menüden işlem yapın:"
+                    )
+                    kb = hotmail_keyboard(uid)
+                    try:
+                        bot_instance.edit_message_text(
+                            txt, call.message.chat.id, call.message.message_id,
+                            reply_markup=kb, parse_mode="HTML"
+                        )
+                    except Exception:
+                        bot_instance.send_message(
+                            call.message.chat.id, txt, reply_markup=kb, parse_mode="HTML"
+                        )
+                except Exception as e:
+                    print(f"[HOTMAIL MENU ERROR] {e}")
+                    import traceback; traceback.print_exc()
+                    try:
+                        bot_instance.send_message(
+                            call.message.chat.id,
+                            "📧 <b>HOTMAIL CHECKER</b>\nMenüyü açıyorum...",
+                            reply_markup=hotmail_keyboard(uid),
+                            parse_mode="HTML"
+                        )
+                    except Exception as e2:
+                        print(f"[HOTMAIL FATAL] {e2}")
+                        try:
+                            bot_instance.answer_callback_query(call.id, f"Hata: {e}", show_alert=True)
+                        except Exception:
+                            pass
                 return
             if data == "hotmail_start":
                 try: bot_instance.answer_callback_query(call.id)
