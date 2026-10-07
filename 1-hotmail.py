@@ -82,6 +82,14 @@ LOG_FREE_MAX = 100
 LOG_API_BASE = "https://site-viphesab.my-board.org/log.php"
 LOG_AUTH = "@gaynotcu"
 
+# ── Davet sistemi ──
+REF_LOG_BONUS_PER = 5      # her basarili davet → +5 log hakki
+REF_SX_NEEDED     = 5      # her 5 davet → 1 gun SearchX
+REF_SX_DAYS       = 1
+REF_SMS_NEEDED    = 5
+REF_SMS_DAYS      = 1
+SMS_PRICE         = 200
+
 # ── Telegram ID Sorgu ──
 TGID_FREE_LIMIT = 1
 TGID_PACKAGE_25 = 25
@@ -300,10 +308,54 @@ def db_init():
     c.execute('''CREATE TABLE IF NOT EXISTS accid_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT,
         target TEXT, status TEXT, detail TEXT, date TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS referrals (
+        invited_id INTEGER PRIMARY KEY,
+        inviter_id INTEGER NOT NULL,
+        date TEXT DEFAULT ''
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS referral_stats (
+        user_id INTEGER PRIMARY KEY,
+        total_invites INTEGER DEFAULT 0,
+        log_bonus INTEGER DEFAULT 0,
+        sx_rewards INTEGER DEFAULT 0
+    )''')
     conn.commit()
     conn.close()
 
 db_init()
+
+def ensure_ref_schema():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("PRAGMA table_info(referrals)")
+        cols = [r[1] for r in c.fetchall()]
+        if cols and "service" not in cols:
+            try:
+                c.execute("ALTER TABLE referrals ADD COLUMN service TEXT DEFAULT 'log'")
+            except Exception:
+                pass
+        c.execute(
+            "CREATE TABLE IF NOT EXISTS referral_stats ("
+            "user_id INTEGER NOT NULL, service TEXT NOT NULL, "
+            "total_invites INTEGER DEFAULT 0, log_bonus INTEGER DEFAULT 0, "
+            "rewards INTEGER DEFAULT 0, PRIMARY KEY (user_id, service))"
+        )
+        for col, td in [
+            ("is_premium_sms", "INTEGER DEFAULT 0"),
+            ("premium_sms_until", "TEXT DEFAULT ''"),
+            ("premium_sms_date", "TEXT DEFAULT ''"),
+        ]:
+            try:
+                c.execute(f"ALTER TABLE users ADD COLUMN {col} {td}")
+            except Exception:
+                pass
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[REF SCHEMA] {e}")
+
+ensure_ref_schema()
 
 def db_get(user_id, col):
     try:
@@ -589,19 +641,306 @@ def increment_log_used(user_id):
     current = get_log_used(user_id)
     db_set(user_id, "log_used", current + 1)
 
+def ref_get_stats(user_id, service):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "SELECT total_invites, log_bonus, rewards FROM referral_stats WHERE user_id=? AND service=?",
+            (user_id, service)
+        )
+        r = c.fetchone()
+        conn.close()
+        if not r:
+            return 0, 0, 0
+        return int(r[0] or 0), int(r[1] or 0), int(r[2] or 0)
+    except Exception:
+        return 0, 0, 0
+
+def ref_get_log_bonus(user_id):
+    _, bonus, _ = ref_get_stats(user_id, "log")
+    return bonus
+
+def ref_get_invites(user_id, service="log"):
+    total, _, _ = ref_get_stats(user_id, service)
+    return total
+
 def can_use_log(user_id):
     if user_id == ADMIN_ID or is_premium_log(user_id):
         return True, "premium"
     used = get_log_used(user_id)
-    if used < LOG_FREE_LIMIT:
+    total_allow = LOG_FREE_LIMIT + ref_get_log_bonus(user_id)
+    if used < total_allow:
         return True, "free"
     return False, None
 
 def get_log_limit_text(user_id):
     if user_id == ADMIN_ID or is_premium_log(user_id):
         return "♾️ Sınırsız"
-    left = max(0, LOG_FREE_LIMIT - get_log_used(user_id))
-    return f"{left}/{LOG_FREE_LIMIT}"
+    total_allow = LOG_FREE_LIMIT + ref_get_log_bonus(user_id)
+    left = max(0, total_allow - get_log_used(user_id))
+    return f"{left}/{total_allow}"
+
+def is_premium_sms(user_id):
+    try:
+        if user_id == ADMIN_ID:
+            return True
+        if _as_int_flag(db_get(user_id, "is_premium_sms")):
+            until = db_get(user_id, "premium_sms_until") or ""
+            if not until or until in ("lifetime", "omur", "∞"):
+                return True
+            try:
+                exp = datetime.strptime(str(until)[:19], "%Y-%m-%d %H:%M:%S")
+                if datetime.now() > exp:
+                    db_set(user_id, "is_premium_sms", 0)
+                    return False
+                return True
+            except Exception:
+                return True
+        return False
+    except Exception:
+        return False
+
+def set_premium_sms(user_id, username="", days=None, stars=None, package_label=None):
+    """days=None => omur boyu / sinirsiz."""
+    try:
+        add_user(user_id, username or "", "")
+        now = datetime.now()
+        now_s = now.strftime("%Y-%m-%d %H:%M:%S")
+        if days is None or days <= 0:
+            until = "lifetime"
+            label = package_label or "SMS Sinirsiz"
+        else:
+            from datetime import timedelta
+            until = (now + timedelta(days=int(days))).strftime("%Y-%m-%d %H:%M:%S")
+            label = package_label or f"SMS {days}g"
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "UPDATE users SET is_premium_sms=1, premium_sms_date=?, premium_sms_until=? WHERE user_id=?",
+            (now_s, until, user_id)
+        )
+        if c.rowcount == 0:
+            c.execute(
+                "INSERT INTO users (user_id,username,is_premium_sms,premium_sms_date,premium_sms_until,join_date) VALUES (?,?,1,?,?,?)",
+                (user_id, username or "", now_s, until, now_s)
+            )
+        amount = stars if stars is not None else (SMS_PRICE if days is None else 0)
+        try:
+            c.execute(
+                "INSERT INTO premium_logs (user_id,username,package,amount,date) VALUES (?,?,?,?,?)",
+                (user_id, username or "", label, amount, now_s)
+            )
+        except Exception:
+            pass
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[SMS PREMIUM] {e}")
+        return False
+
+def sms_access_left(user_id):
+    if user_id == ADMIN_ID:
+        return "♾️ Admin"
+    if not is_premium_sms(user_id):
+        return "Yok"
+    until = db_get(user_id, "premium_sms_until") or ""
+    if not until or until in ("lifetime", "omur", "∞"):
+        return "♾️ Sınırsız"
+    try:
+        exp = datetime.strptime(str(until)[:19], "%Y-%m-%d %H:%M:%S")
+        left = exp - datetime.now()
+        if left.total_seconds() <= 0:
+            return "Suresi dolmus"
+        days = left.days
+        hours = left.seconds // 3600
+        if days > 0:
+            return f"{days} gun {hours} saat"
+        return f"{hours} saat"
+    except Exception:
+        return str(until)
+
+def process_referral(invited_id, inviter_id, service="log", bot_instance=None):
+    """Servis bazli davet. log / sx / sms."""
+    service = (service or "log").lower().strip()
+    if service not in ("log", "sx", "sms"):
+        service = "log"
+    try:
+        invited_id = int(invited_id)
+        inviter_id = int(inviter_id)
+    except Exception:
+        return False
+    if invited_id == inviter_id:
+        return False
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT inviter_id FROM referrals WHERE invited_id=?", (invited_id,))
+        if c.fetchone():
+            conn.close()
+            return False
+        c.execute("SELECT user_id FROM users WHERE user_id=?", (inviter_id,))
+        if not c.fetchone():
+            conn.close()
+            return False
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            c.execute(
+                "INSERT INTO referrals (invited_id, inviter_id, service, date) VALUES (?,?,?,?)",
+                (invited_id, inviter_id, service, now)
+            )
+        except Exception:
+            c.execute(
+                "INSERT INTO referrals (invited_id, inviter_id, date) VALUES (?,?,?)",
+                (invited_id, inviter_id, now)
+            )
+        c.execute(
+            "SELECT total_invites, log_bonus, rewards FROM referral_stats WHERE user_id=? AND service=?",
+            (inviter_id, service)
+        )
+        row = c.fetchone()
+        if row:
+            total = int(row[0] or 0) + 1
+            log_bonus = int(row[1] or 0)
+            rewards = int(row[2] or 0)
+            if service == "log":
+                log_bonus += REF_LOG_BONUS_PER
+            c.execute(
+                "UPDATE referral_stats SET total_invites=?, log_bonus=?, rewards=? WHERE user_id=? AND service=?",
+                (total, log_bonus, rewards, inviter_id, service)
+            )
+        else:
+            total = 1
+            log_bonus = REF_LOG_BONUS_PER if service == "log" else 0
+            rewards = 0
+            c.execute(
+                "INSERT INTO referral_stats (user_id, service, total_invites, log_bonus, rewards) VALUES (?,?,?,?,?)",
+                (inviter_id, service, total, log_bonus, 0)
+            )
+        conn.commit()
+        conn.close()
+
+        reward_msg = ""
+        if service == "log":
+            reward_msg = f"📂 +{REF_LOG_BONUS_PER} Log hakkı"
+        elif service == "sx":
+            should = (total // REF_SX_NEEDED) > rewards
+            if should:
+                set_premium_lmnx(inviter_id, days=REF_SX_DAYS, package_label=f"Davet SearchX x{REF_SX_NEEDED}")
+                rewards = total // REF_SX_NEEDED
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
+                c.execute(
+                    "UPDATE referral_stats SET rewards=? WHERE user_id=? AND service=?",
+                    (rewards, inviter_id, service)
+                )
+                conn.commit()
+                conn.close()
+                reward_msg = f"😈 +{REF_SX_DAYS} gün SearchX Premium!"
+            else:
+                left = REF_SX_NEEDED - (total % REF_SX_NEEDED)
+                reward_msg = f"😈 SearchX için kalan: {left} davet"
+        elif service == "sms":
+            should = (total // REF_SMS_NEEDED) > rewards
+            if should:
+                set_premium_sms(inviter_id, days=REF_SMS_DAYS, package_label=f"Davet SMS x{REF_SMS_NEEDED}")
+                rewards = total // REF_SMS_NEEDED
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
+                c.execute(
+                    "UPDATE referral_stats SET rewards=? WHERE user_id=? AND service=?",
+                    (rewards, inviter_id, service)
+                )
+                conn.commit()
+                conn.close()
+                reward_msg = f"💣 +{REF_SMS_DAYS} gün SMS Bomber!"
+            else:
+                left = REF_SMS_NEEDED - (total % REF_SMS_NEEDED)
+                reward_msg = f"💣 SMS Bomber için kalan: {left} davet"
+
+        if bot_instance:
+            try:
+                names = {"log": "📂 Log", "sx": "😈 SearchX", "sms": "💣 SMS Bomber"}
+                msg = (
+                    "🎁 <b>Yeni davet!</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📦 Servis: {names.get(service, service)}\n"
+                    f"👤 +1 kullanıcı /start yaptı\n"
+                    f"📊 Bu serviste davet: <b>{total}</b>\n"
+                    f"{reward_msg}"
+                )
+                bot_instance.send_message(inviter_id, msg, parse_mode="HTML")
+            except Exception:
+                pass
+        print(f"[REF] {service} {inviter_id} <- {invited_id} total={total}")
+        return True
+    except Exception as e:
+        print(f"[REF ERROR] {e}")
+        return False
+
+def get_bot_username(bot_instance):
+    try:
+        me = bot_instance.get_me()
+        return (me.username or "").strip()
+    except Exception:
+        return ""
+
+def referral_link(bot_instance, user_id, service="log"):
+    uname = get_bot_username(bot_instance)
+    svc = service if service in ("log", "sx", "sms") else "log"
+    if uname:
+        return f"https://t.me/{uname}?start=ref_{svc}_{user_id}"
+    return f"ref_{svc}_{user_id}"
+
+def referral_panel_text(user_id, bot_instance, service="log"):
+    total, log_b, rewards = ref_get_stats(user_id, service)
+    link = referral_link(bot_instance, user_id, service)
+    if service == "log":
+        return (
+            "🎁 <b>LOG — DAVET ET KAZAN</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔗 Linkin:\n<code>{link}</code>\n\n"
+            f"📂 Her davet → <b>+{REF_LOG_BONUS_PER} Log hakkı</b>\n\n"
+            f"📊 Davet: <b>{total}</b>\n"
+            f"📂 Log bonus: <b>{log_b}</b>\n\n"
+            "📌 Arkadaş link ile /start yapmalı.\n"
+            "⚠️ Sadece bu link Log için sayılır."
+        )
+    if service == "sx":
+        mod = total % REF_SX_NEEDED
+        to_go = REF_SX_NEEDED if (mod == 0 and total > 0) else (REF_SX_NEEDED - mod if total else REF_SX_NEEDED)
+        if total == 0:
+            to_go = REF_SX_NEEDED
+        return (
+            "🎁 <b>SearchX — DAVET ET KAZAN</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔗 Linkin:\n<code>{link}</code>\n\n"
+            f"😈 Her <b>{REF_SX_NEEDED}</b> davet → <b>{REF_SX_DAYS} gün SearchX</b>\n\n"
+            f"📊 Davet: <b>{total}</b>\n"
+            f"😈 Kalan: <b>{to_go}</b> davet\n\n"
+            "📌 Arkadaş link ile /start yapmalı.\n"
+            "⚠️ Sadece bu link SearchX için sayılır."
+        )
+    # sms
+    mod = total % REF_SMS_NEEDED
+    to_go = REF_SMS_NEEDED if (mod == 0 and total > 0) else (REF_SMS_NEEDED - mod if total else REF_SMS_NEEDED)
+    if total == 0:
+        to_go = REF_SMS_NEEDED
+    left = sms_access_left(user_id)
+    return (
+        "🎁 <b>SMS BOMBER — DAVET ET KAZAN</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔗 Linkin:\n<code>{link}</code>\n\n"
+        f"💣 Her <b>{REF_SMS_NEEDED}</b> davet → <b>{REF_SMS_DAYS} gün SMS Bomber</b>\n"
+        f"⭐ Sınırsız kullanım → <b>{SMS_PRICE}⭐</b>\n\n"
+        f"📊 Davet: <b>{total}</b>\n"
+        f"💣 Kalan: <b>{to_go}</b> davet\n"
+        f"⏱ Erişim: <b>{left}</b>\n\n"
+        "📌 Arkadaş link ile /start yapmalı.\n"
+        "⚠️ Sadece bu link SMS için sayılır."
+    )
+
 
 def get_user_stats(user_id):
     try:
@@ -2807,6 +3146,7 @@ def lmnx_main_kb(user_id):
     else:
         mk.add(_btn("💎 SearchX Premium Al", "buy_lmnx"))
     mk.add(_btn("📋 Premium içeriği neler?", "lmnx_info"))
+    mk.add(_btn("🎁 Davet et — Kazan", "ref_panel_sx"))
     for cat, (title, keys) in LMNX_CATS.items():
         tag = "" if (user_id == ADMIN_ID or is_premium_lmnx(user_id)) else " 🔒"
         mk.add(_btn(f"{title}{tag}", f"lmnx_cat_{cat}"))
@@ -2954,9 +3294,10 @@ def log_kb(user_id):
         mk.add(_btn(f"⭐ LOG Premium Aktif — {durum}", "noop"))
         mk.add(_btn("🔍 Domain Log Çek", "log_search"))
     else:
-        mk.add(_btn(f"🆓 Free hak: {durum}", "noop"))
-        mk.add(_btn("🔍 Domain Log Çek (Free 100 limit)", "log_search"))
-        mk.add(_btn(f"⭐ LOG Premium Satın Al ({LOG_PRICE}⭐)", "buy_log"))
+        mk.add(_btn(f"📂 Hak: {durum}", "noop"))
+        mk.add(_btn("🔍 Domain Log Çek", "log_search"))
+        mk.add(_btn(f"⭐ LOG Premium ({LOG_PRICE}⭐)", "buy_log"))
+        mk.add(_btn("🎁 Davet et — Kazan", "ref_panel_log"))
     mk.add(_btn("◀️ Geri", "goto_tools"))
     return mk
 
@@ -5082,7 +5423,35 @@ def register_handlers(bot_instance):
         if enforce_ban(uid):
             bot_instance.reply_to(msg, ban_block_message(uid), parse_mode="HTML")
             return
-        add_user(uid, msg.from_user.username or "", msg.from_user.first_name or "")
+        try:
+            parts = (msg.text or "").strip().split(maxsplit=1)
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("SELECT user_id FROM users WHERE user_id=?", (uid,))
+            already = c.fetchone()
+            conn.close()
+            add_user(uid, msg.from_user.username or "", msg.from_user.first_name or "")
+            if (not already) and len(parts) > 1 and parts[1].startswith("ref_"):
+                payload = parts[1][4:]  # after ref_
+                # ref_log_123 / ref_sx_123 / ref_sms_123 / ref_123 (eski)
+                service = "log"
+                inviter_s = payload
+                if payload.startswith("log_"):
+                    service, inviter_s = "log", payload[4:]
+                elif payload.startswith("sx_"):
+                    service, inviter_s = "sx", payload[3:]
+                elif payload.startswith("sms_"):
+                    service, inviter_s = "sms", payload[4:]
+                if inviter_s.isdigit():
+                    inviter_id = int(inviter_s)
+                    if inviter_id != uid:
+                        process_referral(uid, inviter_id, service, bot_instance)
+        except Exception as e:
+            print(f"[START REF] {e}")
+            try:
+                add_user(uid, msg.from_user.username or "", msg.from_user.first_name or "")
+            except Exception:
+                pass
         mk = InlineKeyboardMarkup(row_width=3)
         mk.add(_btn("🇹🇷 Türkçe","lang_tr"), _btn("🇬🇧 English","lang_en"), _btn("🇸🇦 العربية","lang_ar"))
         bot_instance.reply_to(msg, s(uid, "lang_pick"), reply_markup=mk)
@@ -5920,6 +6289,66 @@ def register_handlers(bot_instance):
                 except: pass
                 return
             # ═══ 📂 LOG ÇEKME ═══
+            if data == "ref_panel" or data.startswith("ref_panel_"):
+                try:
+                    bot_instance.answer_callback_query(call.id)
+                except Exception:
+                    pass
+                svc = "log"
+                if data.startswith("ref_panel_"):
+                    svc = data.replace("ref_panel_", "", 1) or "log"
+                if svc not in ("log", "sx", "sms"):
+                    svc = "log"
+                txt = referral_panel_text(uid, bot_instance, svc)
+                mk = InlineKeyboardMarkup(row_width=1)
+                mk.add(_btn("🔄 Yenile", f"ref_panel_{svc}"))
+                if svc == "log":
+                    mk.add(_btn("📂 Log Çekme", "tool_log"))
+                elif svc == "sx":
+                    mk.add(_btn("😈 SearchX", "menu_lmnx"))
+                else:
+                    mk.add(_btn("💣 SMS Bomber", "tool_smsbomb"))
+                    if not is_premium_sms(uid) or (db_get(uid, "premium_sms_until") or "") not in ("lifetime", "omur", "∞"):
+                        mk.add(_btn(f"⭐ SMS Sınırsız — {SMS_PRICE}⭐", "buy_sms"))
+                mk.add(_btn("◀️ Araçlar", "goto_tools"))
+                try:
+                    bot_instance.edit_message_text(
+                        txt, call.message.chat.id, call.message.message_id,
+                        reply_markup=mk, parse_mode="HTML"
+                    )
+                except Exception:
+                    bot_instance.send_message(call.message.chat.id, txt, reply_markup=mk, parse_mode="HTML")
+                return
+            if data == "buy_sms":
+                try:
+                    bot_instance.answer_callback_query(call.id)
+                except Exception:
+                    pass
+                if is_premium_sms(uid) and (db_get(uid, "premium_sms_until") or "") in ("lifetime", "omur", "∞", ""):
+                    # empty until with flag might mean lifetime after set
+                    until = db_get(uid, "premium_sms_until") or ""
+                    if until in ("lifetime", "omur", "∞") or (until == "" and _as_int_flag(db_get(uid, "is_premium_sms"))):
+                        try:
+                            bot_instance.answer_callback_query(call.id, "Zaten sınırsız SMS var!", show_alert=True)
+                        except Exception:
+                            pass
+                        return
+                try:
+                    bot_instance.send_invoice(
+                        chat_id=call.message.chat.id,
+                        title="💣 SMS Bomber Sınırsız",
+                        description="SMS Bomber sınırsız kullanım",
+                        invoice_payload="sms_unlimited",
+                        provider_token="",
+                        currency="XTR",
+                        prices=[LabeledPrice(label="SMS Sinirsiz", amount=SMS_PRICE)],
+                    )
+                except Exception as e:
+                    try:
+                        bot_instance.answer_callback_query(call.id, str(e)[:180], show_alert=True)
+                    except Exception:
+                        pass
+                return
             if data == "tool_log":
                 try: bot_instance.answer_callback_query(call.id)
                 except: pass
@@ -6281,17 +6710,54 @@ def register_handlers(bot_instance):
                 )
                 return
             if data == "tool_smsbomb":
+                try:
+                    bot_instance.answer_callback_query(call.id)
+                except Exception:
+                    pass
                 with _SMS_LOCK:
                     if uid in _SMS_SESSIONS and _SMS_SESSIONS[uid].get("running"):
-                        try: bot_instance.answer_callback_query(call.id, "⚠️ Aktif bombardıman var!", show_alert=True)
-                        except: pass
+                        try:
+                            bot_instance.answer_callback_query(call.id, "⚠️ Aktif bombardıman var!", show_alert=True)
+                        except Exception:
+                            pass
                         return
-                m = bot_instance.send_message(call.message.chat.id,
-                    "💣 <b>SMS Bomber</b>\n📱 Hedef numarayı girin:\nÖrnek: <code>5306524123</code>")
+                if not is_premium_sms(uid):
+                    total, _, _ = ref_get_stats(uid, "sms")
+                    mod = total % REF_SMS_NEEDED
+                    to_go = REF_SMS_NEEDED if total == 0 else (REF_SMS_NEEDED if mod == 0 else REF_SMS_NEEDED - mod)
+                    mk = InlineKeyboardMarkup(row_width=1)
+                    mk.add(_btn("🎁 Davet et — 1 gün kazan", "ref_panel_sms"))
+                    mk.add(_btn(f"⭐ Sınırsız — {SMS_PRICE}⭐", "buy_sms"))
+                    mk.add(_btn("◀️ Araçlar", "goto_tools"))
+                    bot_instance.send_message(
+                        call.message.chat.id,
+                        "💣 <b>SMS Bomber</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━\n"
+                        "🔒 Free kullanıcılar için kilitli.\n\n"
+                        f"🎁 <b>{REF_SMS_NEEDED} arkadaş davet</b> → {REF_SMS_DAYS} gün kullanım\n"
+                        f"⭐ <b>{SMS_PRICE} yıldız</b> → sınırsız kullanım\n\n"
+                        f"📊 Davet: <b>{total}</b> · Kalan: <b>{to_go}</b>\n"
+                        f"⏱ Erişim: <b>{sms_access_left(uid)}</b>",
+                        reply_markup=mk,
+                        parse_mode="HTML"
+                    )
+                    return
+                mk = InlineKeyboardMarkup(row_width=1)
+                mk.add(_btn("🎁 Davet et — Kazan", "ref_panel_sms"))
+                until = db_get(uid, "premium_sms_until") or ""
+                if until not in ("lifetime", "omur", "∞"):
+                    mk.add(_btn(f"⭐ Sınırsız — {SMS_PRICE}⭐", "buy_sms"))
+                m = bot_instance.send_message(
+                    call.message.chat.id,
+                    "💣 <b>SMS Bomber</b>\n"
+                    f"⏱ Erişim: <b>{sms_access_left(uid)}</b>\n"
+                    "📱 Hedef numarayı girin:\nÖrnek: <code>5306524123</code>",
+                    reply_markup=mk,
+                    parse_mode="HTML"
+                )
                 register_step(bot_instance, m, lambda m: _sms_step1_number(m, bot_instance))
-                try: bot_instance.answer_callback_query(call.id)
-                except: pass
                 return
+
             if data == "tool_hotmail":
                 try:
                     bot_instance.answer_callback_query(call.id)
