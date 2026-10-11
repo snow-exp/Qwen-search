@@ -75,6 +75,18 @@ PREMIUM_KEYWORD_LIMIT = 50
 FREE_CAPTURE_LIMIT = 3
 SMS_COUNT = 41
 
+# ── Güvenlik (Cyber Search) ──
+PRIVATE_ONLY = True
+RATE_LIMIT_MESSAGES = 20
+RATE_LIMIT_CALLBACKS = 25
+RATE_LIMIT_QUERIES = 8
+QUERY_COOLDOWN_SEC = 2.0
+FLOOD_STRIKE_LIMIT = 12
+FLOOD_WINDOW_SEC = 10
+FLOOD_TEMP_BAN_SEC = 300
+MAX_TEXT_LEN = 500
+MAX_STATE_AGE_SEC = 300
+
 # ── LOG Çekme ──
 LOG_PRICE = 600
 LOG_FREE_LIMIT = 3
@@ -3814,6 +3826,7 @@ def clear_user_flow(bot_instance, user_id, chat_id=None):
     """Onceki next_step ve state temizle (spam / kilit onleme)."""
     try:
         USER_STATES.pop(user_id, None)
+        _state_ts.pop(user_id, None)
     except Exception:
         pass
     for cid in (chat_id, user_id):
@@ -3823,6 +3836,164 @@ def clear_user_flow(bot_instance, user_id, chat_id=None):
             bot_instance.clear_step_handler_by_chat_id(cid)
         except Exception:
             pass
+
+
+# ══════════════════════════════════════════════════════════════
+#  GUVENLIK MOTORU
+# ══════════════════════════════════════════════════════════════
+_rate_bucket = {}
+_cooldown = {}
+_flood_hits = {}
+_temp_bans = {}
+_state_ts = {}
+_sec_lock = threading.Lock()
+
+
+def _sec_prune(arr, window):
+    now = time.time()
+    return [x for x in arr if now - x < window]
+
+
+def security_temp_banned(uid):
+    if uid == ADMIN_ID:
+        return False, 0
+    until = _temp_bans.get(uid, 0)
+    now = time.time()
+    if until > now:
+        return True, int(until - now)
+    if until:
+        _temp_bans.pop(uid, None)
+    return False, 0
+
+
+def security_set_temp_ban(uid, seconds=None, reason="flood"):
+    if uid == ADMIN_ID:
+        return
+    seconds = FLOOD_TEMP_BAN_SEC if seconds is None else seconds
+    _temp_bans[uid] = time.time() + seconds
+    print(f"[SEC] temp ban uid={uid} {seconds}s ({reason})")
+
+
+def security_rate(uid, kind="msg"):
+    """kind: msg | cb | query -> (ok, wait_sec, reason)"""
+    if uid == ADMIN_ID:
+        return True, 0, ""
+    banned, left = security_temp_banned(uid)
+    if banned:
+        return False, left, "temp_ban"
+    limits = {
+        "msg": (RATE_LIMIT_MESSAGES, 60),
+        "cb": (RATE_LIMIT_CALLBACKS, 60),
+        "query": (RATE_LIMIT_QUERIES, 60),
+    }
+    max_n, window = limits.get(kind, (RATE_LIMIT_MESSAGES, 60))
+    key = (uid, kind)
+    with _sec_lock:
+        arr = _sec_prune(_rate_bucket.get(key, []), window)
+        if len(arr) >= max_n:
+            _rate_bucket[key] = arr
+            wait = int(window - (time.time() - arr[0])) + 1
+            return False, max(1, wait), "rate"
+        arr.append(time.time())
+        _rate_bucket[key] = arr
+        hits = _sec_prune(_flood_hits.get(uid, []), FLOOD_WINDOW_SEC)
+        hits.append(time.time())
+        _flood_hits[uid] = hits
+        if len(hits) >= FLOOD_STRIKE_LIMIT:
+            security_set_temp_ban(uid, FLOOD_TEMP_BAN_SEC, "flood")
+            return False, FLOOD_TEMP_BAN_SEC, "flood"
+    return True, 0, ""
+
+
+def security_cooldown(uid):
+    if uid == ADMIN_ID:
+        return True, 0
+    last = _cooldown.get(uid, 0)
+    wait = QUERY_COOLDOWN_SEC - (time.time() - last)
+    if wait > 0:
+        return False, wait
+    return True, 0
+
+
+def security_mark_query(uid):
+    _cooldown[uid] = time.time()
+
+
+def security_touch_state(uid):
+    _state_ts[uid] = time.time()
+
+
+def security_get_state(uid):
+    st = USER_STATES.get(uid)
+    if not st:
+        return None
+    ts = 0
+    if isinstance(st, dict):
+        ts = st.get("_ts") or 0
+    ts = ts or _state_ts.get(uid) or 0
+    if not ts:
+        ts = time.time()
+        _state_ts[uid] = ts
+        if isinstance(st, dict):
+            st["_ts"] = ts
+    if (time.time() - float(ts)) > MAX_STATE_AGE_SEC:
+        USER_STATES.pop(uid, None)
+        _state_ts.pop(uid, None)
+        return None
+    return st
+
+
+def security_set_state(uid, **kwargs):
+    kwargs["_ts"] = time.time()
+    USER_STATES[uid] = kwargs
+    _state_ts[uid] = kwargs["_ts"]
+
+
+def security_sanitize_text(text, max_len=None):
+    max_len = MAX_TEXT_LEN if max_len is None else max_len
+    if text is None:
+        return ""
+    text = str(text).replace("\x00", "").strip()
+    if len(text) > max_len:
+        text = text[:max_len]
+    return "".join(ch for ch in text if ch in "\n\t" or ord(ch) >= 32)
+
+
+def security_safe_callback(data):
+    data = (data or "").strip()[:120]
+    if not data:
+        return None
+    # sms callback icinde mail/telefon olabilir
+    if not re.match(r"^[a-zA-Z0-9_\-\.@+]+$", data):
+        return None
+    return data
+
+
+def security_chat_ok(obj):
+    if not PRIVATE_ONLY:
+        return True
+    try:
+        chat = obj.chat if hasattr(obj, "chat") else obj.message.chat
+        return chat.type == "private"
+    except Exception:
+        return True
+
+
+def security_block_msg(reason, wait=0):
+    if reason == "private":
+        return "🛡️ Bu bot yalnızca özel sohbette çalışır."
+    if reason == "temp_ban":
+        return f"🛡️ Çok fazla istek. {int(wait)} sn sonra tekrar dene."
+    if reason == "rate":
+        return f"🛡️ Yavaşla. {int(wait)} sn bekle."
+    if reason == "flood":
+        return f"🛡️ Flood koruması: {int(wait)} sn geçici engel."
+    if reason == "cooldown":
+        return f"🛡️ Sorgular arası {float(wait):.1f} sn bekle."
+    if reason == "ban":
+        return "🚫 Hesabın yasaklı."
+    return "🛡️ İşlem engellendi."
+
 
 
 def is_main_menu_text(text):
@@ -5420,6 +5591,19 @@ def register_handlers(bot_instance):
     @bot_instance.message_handler(commands=["start"])
     def cmd_start(msg):
         uid = msg.from_user.id
+        if not security_chat_ok(msg):
+            try:
+                bot_instance.reply_to(msg, security_block_msg("private"))
+            except Exception:
+                pass
+            return
+        ok, wait, why = security_rate(uid, "msg")
+        if not ok:
+            try:
+                bot_instance.reply_to(msg, security_block_msg(why, wait))
+            except Exception:
+                pass
+            return
         if enforce_ban(uid):
             bot_instance.reply_to(msg, ban_block_message(uid), parse_mode="HTML")
             return
@@ -5714,8 +5898,14 @@ def register_handlers(bot_instance):
     @bot_instance.message_handler(func=lambda m: True, content_types=["text"])
     def handle_text(msg):
         uid = msg.from_user.id
-        # Admin state'leri ban kontrolünden önce (admin kendi panelini kullansın)
-        st = USER_STATES.get(uid)
+        if not security_chat_ok(msg):
+            try:
+                bot_instance.reply_to(msg, security_block_msg("private"))
+            except Exception:
+                pass
+            return
+        # Admin state'leri ban / rate'ten once
+        st = security_get_state(uid)
         if st and uid == ADMIN_ID:
             action = st.get("action")
             if action == "adm_give_premium":
@@ -5795,6 +5985,39 @@ def register_handlers(bot_instance):
                 _admin_announce(msg, bot_instance)
                 return
 
+        ok, wait, why = security_rate(uid, "msg")
+        if not ok:
+            try:
+                bot_instance.reply_to(msg, security_block_msg(why, wait))
+            except Exception:
+                pass
+            return
+        # metin temizle
+        try:
+            if msg.text:
+                msg.text = security_sanitize_text(msg.text)
+        except Exception:
+            pass
+
+        # aktif adim varsa sorgu rate + cooldown (admin muaf)
+        st_chk = security_get_state(uid)
+        if st_chk and uid != ADMIN_ID:
+            ok_q, wait_q, why_q = security_rate(uid, "query")
+            if not ok_q:
+                try:
+                    bot_instance.reply_to(msg, security_block_msg(why_q, wait_q))
+                except Exception:
+                    pass
+                return
+            ok_c, wait_c = security_cooldown(uid)
+            if not ok_c:
+                try:
+                    bot_instance.reply_to(msg, security_block_msg("cooldown", wait_c))
+                except Exception:
+                    pass
+                return
+            security_mark_query(uid)
+
         if enforce_ban(uid):
             bot_instance.reply_to(msg, ban_block_message(uid), parse_mode="HTML")
             return
@@ -5838,12 +6061,9 @@ def register_handlers(bot_instance):
     def handle_cb(call):
         try:
             uid = call.from_user.id
-            data = (call.data or "").strip()
             cid = call.message.chat.id if call.message else uid
             mid = call.message.message_id if call.message else None
-            print(f"[CB] uid={uid} data={data!r}")
 
-            # Her callback'te once loading'i bitir (Telegram spinner)
             def _ack(text=None, alert=False):
                 try:
                     if text:
@@ -5852,6 +6072,23 @@ def register_handlers(bot_instance):
                         bot_instance.answer_callback_query(call.id)
                 except Exception:
                     pass
+
+            # ── GUVENLIK: ozel sohbet ──
+            if not security_chat_ok(call):
+                _ack(security_block_msg("private"), alert=True)
+                return
+
+            # ── GUVENLIK: rate / flood ──
+            ok, wait, why = security_rate(uid, "cb")
+            if not ok:
+                _ack(security_block_msg(why, wait), alert=True)
+                return
+
+            data = security_safe_callback(call.data or "")
+            if data is None:
+                _ack("Geçersiz işlem", alert=True)
+                return
+            print(f"[CB] uid={uid} data={data!r}")
 
             # ── BAN ──
             if enforce_ban(uid):
