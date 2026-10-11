@@ -86,6 +86,7 @@ FLOOD_WINDOW_SEC = 10
 FLOOD_TEMP_BAN_SEC = 300
 MAX_TEXT_LEN = 500
 MAX_STATE_AGE_SEC = 300
+MAINTENANCE_FILE = "maintenance.flag"
 
 # ── LOG Çekme ──
 LOG_PRICE = 600
@@ -919,7 +920,7 @@ def process_referral(invited_id, inviter_id, service="log", bot_instance=None):
         print(f"[REF] {service} {inviter_id} <- {invited_id} total={total}")
         return True
     except Exception as e:
-        print(f"[REF ERROR] {e}")
+        print(f"[REF ERROR] {e}"); log_bot_error("ref", e)
         return False
 
 def get_bot_username(bot_instance):
@@ -4026,6 +4027,175 @@ def security_block_msg(reason, wait=0):
     return "🛡️ İşlem engellendi."
 
 
+# ══════════════════════════════════════════════════════════════
+#  BAKIM MODU + HATA OZETI + ORTAK PAKET
+# ══════════════════════════════════════════════════════════════
+_ERROR_LOG = []  # {ts, where, msg}
+_ERROR_LOCK = threading.Lock()
+BOT_STARTED_AT = time.time()
+
+
+def is_maintenance():
+    try:
+        return Path(MAINTENANCE_FILE).exists()
+    except Exception:
+        return False
+
+
+def set_maintenance(on: bool):
+    try:
+        pth = Path(MAINTENANCE_FILE)
+        if on:
+            pth.write_text(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+        else:
+            if pth.exists():
+                pth.unlink()
+        return True
+    except Exception as e:
+        print(f"[MAINT] {e}")
+        return False
+
+
+def maintenance_message():
+    return (
+        "🛠️ <b>Bakım modu</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "Bot şu an bakımdadır.\n"
+        "Lütfen daha sonra tekrar dene.\n\n"
+        "👨‍💻 @hackledin"
+    )
+
+
+def enforce_maintenance(user_id):
+    """True = engelle. Admin muaf."""
+    if user_id == ADMIN_ID:
+        return False
+    return is_maintenance()
+
+
+def log_bot_error(where, msg):
+    try:
+        with _ERROR_LOCK:
+            _ERROR_LOG.append({
+                "ts": time.time(),
+                "where": str(where)[:80],
+                "msg": str(msg)[:300],
+            })
+            if len(_ERROR_LOG) > 200:
+                del _ERROR_LOG[:50]
+    except Exception:
+        pass
+
+
+def error_summary_text(hours=1):
+    cutoff = time.time() - hours * 3600
+    with _ERROR_LOCK:
+        recent = [e for e in _ERROR_LOG if e["ts"] >= cutoff]
+        total = len(_ERROR_LOG)
+    lines = [
+        f"⚠️ <b>Hata özeti</b> (son {hours} saat)",
+        f"Kritik/kayıtlı: <b>{len(recent)}</b>",
+        f"Bellekte toplam: <b>{total}</b>",
+        "━━━━━━━━━━━━━━━━━━━━━",
+    ]
+    if not recent:
+        lines.append("Son saatte kayıtlı hata yok.")
+    else:
+        for e in recent[-15:]:
+            tstr = datetime.fromtimestamp(e["ts"]).strftime("%H:%M:%S")
+            lines.append(f"• <code>{tstr}</code> [{e['where']}] {e['msg'][:80]}")
+    return "\n".join(lines)
+
+
+def bot_status_text():
+    up = int(time.time() - BOT_STARTED_AT)
+    h, rem = divmod(up, 3600)
+    m, s = divmod(rem, 60)
+    maint = "🛠️ AÇIK" if is_maintenance() else "✅ Kapalı"
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM users")
+        users = c.fetchone()[0]
+        conn.close()
+    except Exception:
+        users = "?"
+    with _ERROR_LOCK:
+        err_1h = len([e for e in _ERROR_LOG if e["ts"] >= time.time() - 3600])
+    return (
+        "📡 <b>Bot durumu</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🟢 Çalışıyor\n"
+        f"⏱ Uptime: <b>{h}s {m}d {s}sn</b>\n"
+        f"🛠️ Bakım: <b>{maint}</b>\n"
+        f"👥 Kullanıcı (DB): <b>{users}</b>\n"
+        f"⚠️ Hata (1s): <b>{err_1h}</b>\n"
+        f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
+    )
+
+
+def packages_kb(service="sx"):
+    """Hak bitince ortak satin al klavyesi."""
+    mk = InlineKeyboardMarkup(row_width=1)
+    service = (service or "sx").lower()
+    if service in ("sx", "lmnx", "searchx"):
+        mk.add(_btn(f"📅 SearchX 1 Gün — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day"))
+        mk.add(_btn(f"📆 SearchX 1 Hafta — {SEARCHX_PRICE_WEEK}⭐", "buy_sx_week"))
+        mk.add(_btn(f"🗓 SearchX 1 Ay — {SEARCHX_PRICE_MONTH}⭐", "buy_sx_month"))
+        mk.add(_btn("💎 Tüm paketler", "buy_lmnx"))
+    elif service == "log":
+        mk.add(_btn(f"📂 LOG Premium — {LOG_PRICE}⭐", "buy_log"))
+        mk.add(_btn("🎁 Davet et — Log kazan", "ref_panel_log"))
+    elif service == "tgid":
+        mk.add(_btn("💎 TG-ID Paketleri", "tgid_packages"))
+    elif service in ("aiimg", "ai"):
+        mk.add(_btn("💎 AI Image Paketleri", "aiimg_packages"))
+    elif service == "accid":
+        mk.add(_btn("💎 Account ID Paketleri", "accid_packages"))
+    elif service in ("hotmail", "prem"):
+        mk.add(_btn(f"⭐ Hotmail Premium — {PREMIUM_PRICE}⭐", "buy_premium"))
+    else:
+        mk.add(_btn(f"📅 SearchX 1 Gün — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day"))
+        mk.add(_btn(f"📂 LOG — {LOG_PRICE}⭐", "buy_log"))
+        mk.add(_btn(f"⭐ Hotmail — {PREMIUM_PRICE}⭐", "buy_premium"))
+    mk.add(_btn("🏠 Ana menü", "goto_home"))
+    return mk
+
+
+def quota_denied_text(service="sx", extra=""):
+    names = {
+        "sx": "SearchX 😈",
+        "log": "Log Çekme",
+        "tgid": "Telegram ID",
+        "aiimg": "AI Image",
+        "accid": "Account ID",
+        "hotmail": "Hotmail",
+    }
+    title = names.get(service, "Servis")
+    txt = (
+        f"❌ <b>Hak/paket gerekli</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔒 {title} için hakkın yok veya bitti.\n"
+    )
+    if extra:
+        txt += f"{extra}\n"
+    txt += "\n💎 Aşağıdan paket seç:"
+    return txt
+
+
+def send_quota_denied(bot_instance, chat_id, service="sx", extra=""):
+    try:
+        bot_instance.send_message(
+            chat_id,
+            quota_denied_text(service, extra),
+            reply_markup=packages_kb(service),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        log_bot_error("send_quota_denied", e)
+
+
+
 
 def is_main_menu_text(text):
     t = (text or "").strip()
@@ -5638,6 +5808,9 @@ def register_handlers(bot_instance):
         if enforce_ban(uid):
             bot_instance.reply_to(msg, ban_block_message(uid), parse_mode="HTML")
             return
+        if enforce_maintenance(uid):
+            bot_instance.reply_to(msg, maintenance_message(), parse_mode="HTML")
+            return
         try:
             parts = (msg.text or "").strip().split(maxsplit=1)
             conn = sqlite3.connect(DB_PATH)
@@ -5841,6 +6014,32 @@ def register_handlers(bot_instance):
                 f"🔌 Servis: {sess.get('services', 0)}")
 
     @bot_instance.message_handler(commands=["admin"])
+    @bot_instance.message_handler(commands=["status"])
+    def cmd_status(msg):
+        uid = msg.from_user.id
+        if uid != ADMIN_ID:
+            bot_instance.reply_to(msg, "⛔ Admin only.")
+            return
+        bot_instance.reply_to(msg, bot_status_text(), parse_mode="HTML")
+
+    @bot_instance.message_handler(commands=["bakim"])
+    def cmd_bakim(msg):
+        uid = msg.from_user.id
+        if uid != ADMIN_ID:
+            bot_instance.reply_to(msg, "⛔ Admin only.")
+            return
+        parts = (msg.text or "").split()
+        arg = parts[1].lower() if len(parts) > 1 else ""
+        if arg in ("ac", "on", "1", "aç"):
+            set_maintenance(True)
+            bot_instance.reply_to(msg, "🛠️ Bakım modu AÇIK")
+        elif arg in ("kapat", "off", "0"):
+            set_maintenance(False)
+            bot_instance.reply_to(msg, "✅ Bakım modu KAPALI")
+        else:
+            st = "AÇIK" if is_maintenance() else "KAPALI"
+            bot_instance.reply_to(msg, f"🛠️ Bakım: <b>{st}</b>\nKod: /bakim ac | /bakim kapat", parse_mode="HTML")
+
     def cmd_admin(msg):
         uid = msg.from_user.id
         if uid != ADMIN_ID:
@@ -5848,6 +6047,9 @@ def register_handlers(bot_instance):
         mk = InlineKeyboardMarkup(row_width=2)
         mk.add(
             _btn("📊 Bot İstatistik","adm_stats"),
+            _btn("📡 Bot Durumu","adm_status"),
+            _btn("🛠️ Bakım Aç/Kapat","adm_maint"),
+            _btn("⚠️ Hata Özeti","adm_errors"),
             _btn("⭐ Premium Kullanıcılar","adm_prem_users"),
             _btn("📋 Premium Log","adm_prem_log"),
             _btn("⭐ Premium Ver","adm_give_premium"),
@@ -5866,7 +6068,6 @@ def register_handlers(bot_instance):
             _btn("😈 SearchX Premium Ver","adm_lmnx_give"),
             _btn("🎨 AI Image Bakiye Ver","adm_aiimg_give"),
             _btn("➖ AI Image Bakiye Al","adm_aiimg_take"),
-            _btn("➖ TG-ID Bakiye Al","adm_tgid_take"),
         )
         bot_instance.reply_to(msg, "👑 <b>ADMIN PANELİ</b>", reply_markup=mk)
 
@@ -6066,6 +6267,9 @@ def register_handlers(bot_instance):
                 reply_markup=captcha_kb(), parse_mode="HTML"
             )
             return
+        if enforce_maintenance(uid):
+            bot_instance.reply_to(msg, maintenance_message(), parse_mode="HTML")
+            return
         # State: Bot Ekle token bekleniyor
         st = USER_STATES.get(uid)
         if st and st.get("action") == "addbot":
@@ -6167,6 +6371,15 @@ def register_handlers(bot_instance):
                         cid, captcha_required_message(),
                         reply_markup=captcha_kb(), parse_mode="HTML"
                     )
+                except Exception:
+                    pass
+                return
+
+            # ── BAKIM ──
+            if enforce_maintenance(uid):
+                _ack("Bakım modu", alert=True)
+                try:
+                    bot_instance.send_message(cid, maintenance_message(), parse_mode="HTML")
                 except Exception:
                     pass
                 return
@@ -7100,7 +7313,7 @@ def register_handlers(bot_instance):
                             call.message.chat.id, txt, reply_markup=kb, parse_mode="HTML"
                         )
                 except Exception as e:
-                    print(f"[HOTMAIL MENU ERROR] {e}")
+                    print(f"[HOTMAIL MENU ERROR] {e}"); log_bot_error("hotmail", e)
                     import traceback; traceback.print_exc()
                     try:
                         bot_instance.send_message(
@@ -8492,6 +8705,35 @@ def _run_predunyam(chat_id, uid, bot_instance):
 def _handle_admin_cb(call, action, bot_instance):
     uid = call.from_user.id; cid = call.message.chat.id; mid = call.message.message_id
     try:
+        if action == "maint":
+            try:
+                bot_instance.answer_callback_query(call.id)
+            except Exception:
+                pass
+            now_on = is_maintenance()
+            set_maintenance(not now_on)
+            state = "AÇIK 🛠️" if is_maintenance() else "KAPALI ✅"
+            detail = "Kullanıcılar botu kullanamaz (sen hariç)." if is_maintenance() else "Bot normale döndü."
+            bot_instance.send_message(
+                cid,
+                f"🛠️ <b>Bakım modu: {state}</b>\n{detail}",
+                parse_mode="HTML"
+            )
+            return
+        if action == "status":
+            try:
+                bot_instance.answer_callback_query(call.id)
+            except Exception:
+                pass
+            bot_instance.send_message(cid, bot_status_text(), parse_mode="HTML")
+            return
+        if action == "errors":
+            try:
+                bot_instance.answer_callback_query(call.id)
+            except Exception:
+                pass
+            bot_instance.send_message(cid, error_summary_text(1), parse_mode="HTML")
+            return
         if action == "stats":
             tu, prem_pu, osint_pu, tc, tch = get_bot_stats()
             txt = (f"📊 <b>BOT İSTATİSTİK</b>\n{'─' * 30}\n"
