@@ -231,6 +231,7 @@ def db_init():
         ("is_premium_lmnx", "INTEGER DEFAULT 0"),
         ("premium_lmnx_date", "TEXT DEFAULT ''"),
         ("premium_lmnx_until", "TEXT DEFAULT ''"),
+        ("is_verified", "INTEGER DEFAULT 0"),
     ]:
         try:
             c.execute(f"ALTER TABLE users ADD COLUMN {col} {typedef}")
@@ -548,6 +549,36 @@ def enforce_ban(user_id):
     if user_id == ADMIN_ID:
         return False
     return is_banned(user_id)
+
+def is_verified(user_id):
+    """Captcha / buton dogrulama. Admin her zaman verified."""
+    if user_id == ADMIN_ID:
+        return True
+    try:
+        return _as_int_flag(db_get(user_id, "is_verified"))
+    except Exception:
+        return False
+
+def set_verified(user_id, val=1):
+    try:
+        add_user(user_id)
+        db_set(user_id, "is_verified", 1 if val else 0)
+    except Exception as e:
+        print(f"[VERIFY] {e}")
+
+def captcha_kb():
+    mk = InlineKeyboardMarkup(row_width=1)
+    mk.add(_btn("✅ Ben robot değilim", "captcha_verify"))
+    return mk
+
+def captcha_required_message():
+    return (
+        "🛡️ <b>Doğrulama gerekli</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "Botu kullanmadan önce doğrula.\n\n"
+        "Aşağıdaki butona bas:\n"
+        "<b>Ben robot değilim</b>"
+    )
 
 def get_ban_reason(user_id):
     try:
@@ -5636,6 +5667,14 @@ def register_handlers(bot_instance):
                 add_user(uid, msg.from_user.username or "", msg.from_user.first_name or "")
             except Exception:
                 pass
+        if not is_verified(uid):
+            bot_instance.reply_to(
+                msg,
+                captcha_required_message(),
+                reply_markup=captcha_kb(),
+                parse_mode="HTML"
+            )
+            return
         mk = InlineKeyboardMarkup(row_width=3)
         mk.add(_btn("🇹🇷 Türkçe","lang_tr"), _btn("🇬🇧 English","lang_en"), _btn("🇸🇦 العربية","lang_ar"))
         bot_instance.reply_to(msg, s(uid, "lang_pick"), reply_markup=mk)
@@ -6021,6 +6060,12 @@ def register_handlers(bot_instance):
         if enforce_ban(uid):
             bot_instance.reply_to(msg, ban_block_message(uid), parse_mode="HTML")
             return
+        if not is_verified(uid):
+            bot_instance.reply_to(
+                msg, captcha_required_message(),
+                reply_markup=captcha_kb(), parse_mode="HTML"
+            )
+            return
         # State: Bot Ekle token bekleniyor
         st = USER_STATES.get(uid)
         if st and st.get("action") == "addbot":
@@ -6095,6 +6140,33 @@ def register_handlers(bot_instance):
                 _ack("🚫 Yasaklısınız! Botu kullanamazsınız.", alert=True)
                 try:
                     bot_instance.send_message(cid, ban_block_message(uid), parse_mode="HTML")
+                except Exception:
+                    pass
+                return
+
+            # ── CAPTCHA ──
+            if data == "captcha_verify":
+                set_verified(uid, 1)
+                _ack("✅ Doğrulandı!")
+                try:
+                    bot_instance.edit_message_text(
+                        "✅ <b>Doğrulama başarılı!</b>\n\nDil seçerek devam et:",
+                        cid, mid, parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+                mk = InlineKeyboardMarkup(row_width=3)
+                mk.add(_btn("🇹🇷 Türkçe","lang_tr"), _btn("🇬🇧 English","lang_en"), _btn("🇸🇦 العربية","lang_ar"))
+                bot_instance.send_message(cid, s(uid, "lang_pick"), reply_markup=mk)
+                return
+
+            if not is_verified(uid) and data not in ("captcha_verify",):
+                _ack("Önce doğrulama yap!", alert=True)
+                try:
+                    bot_instance.send_message(
+                        cid, captcha_required_message(),
+                        reply_markup=captcha_kb(), parse_mode="HTML"
+                    )
                 except Exception:
                     pass
                 return
