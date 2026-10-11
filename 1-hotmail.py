@@ -6013,7 +6013,6 @@ def register_handlers(bot_instance):
                 f"🕐 Başlangıç: {sess.get('start_time', '—')}\n"
                 f"🔌 Servis: {sess.get('services', 0)}")
 
-    @bot_instance.message_handler(commands=["admin"])
     @bot_instance.message_handler(commands=["status"])
     def cmd_status(msg):
         uid = msg.from_user.id
@@ -6040,6 +6039,7 @@ def register_handlers(bot_instance):
             st = "AÇIK" if is_maintenance() else "KAPALI"
             bot_instance.reply_to(msg, f"🛠️ Bakım: <b>{st}</b>\nKod: /bakim ac | /bakim kapat", parse_mode="HTML")
 
+    @bot_instance.message_handler(commands=["admin"])
     def cmd_admin(msg):
         uid = msg.from_user.id
         if uid != ADMIN_ID:
