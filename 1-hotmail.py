@@ -19,11 +19,14 @@ import subprocess
 import sys
 import uuid
 import queue
+import zipfile
+import shutil
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from random import choice, randint
 from string import ascii_lowercase
-from urllib.parse import quote
+from urllib.parse import quote, urljoin, urlparse
 from telebot.types import (
 InlineKeyboardMarkup, InlineKeyboardButton,
 ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
@@ -86,6 +89,10 @@ FLOOD_WINDOW_SEC = 10
 FLOOD_TEMP_BAN_SEC = 300
 MAX_TEXT_LEN = 500
 MAX_STATE_AGE_SEC = 300
+SITECOPY_MAX_DEPTH = 3
+SITECOPY_MAX_FILES = 60
+SITECOPY_MAX_BYTES = 25 * 1024 * 1024  # 25 MB
+SITECOPY_TIMEOUT = 20
 MAINTENANCE_FILE = "maintenance.flag"
 
 # ── LOG Çekme ──
@@ -3310,6 +3317,263 @@ TURKEY_PROMPTS = {
     },
 }
 
+
+# ══════════════════════════════════════════════════════════════
+#  🌐 SITE COPY (mirror)
+# ══════════════════════════════════════════════════════════════
+try:
+    from bs4 import BeautifulSoup
+    _BS4_OK = True
+except Exception:
+    _BS4_OK = False
+
+
+def _sitecopy_norm_domain(domain):
+    domain = (domain or "").strip()
+    if not domain:
+        return None
+    if domain.lower() in ("iptal", "cancel", "q", "çık", "cik"):
+        return "CANCEL"
+    if not domain.startswith("http"):
+        domain = "https://" + domain
+    domain = domain.rstrip("/")
+    parsed = urlparse(domain)
+    if not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _sitecopy_extract_links(html_text, base):
+    links = []
+    if _BS4_OK:
+        try:
+            soup = BeautifulSoup(html_text, "html.parser")
+            for tag in soup.find_all(["a", "link", "script", "img", "source"]):
+                href = tag.get("href") or tag.get("src")
+                if not href:
+                    continue
+                full = urljoin(base, href)
+                links.append(full.split("#")[0])
+            return links
+        except Exception:
+            pass
+    # regex fallback
+    for m in re.findall(r'(?:href|src)=["\']([^"\']+)["\']', html_text, flags=re.I):
+        full = urljoin(base, m)
+        links.append(full.split("#")[0])
+    return links
+
+
+def sitecopy_run(domain, progress_cb=None):
+    """
+    Siteyi sınırlı derinlikle indirir.
+    Returns: (ok, message, zip_path or None, file_count)
+    """
+    base = _sitecopy_norm_domain(domain)
+    if not base or base == "CANCEL":
+        return False, "cancel" if base == "CANCEL" else "invalid", None, 0
+
+    extensions = (
+        ".html", ".htm", ".php", ".asp", ".aspx", ".jsp", ".txt", ".xml", ".json",
+        ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp",
+        ".pdf", ".woff", ".woff2", ".ttf", ".map"
+    )
+    visited = set()
+    downloaded = []
+    total_bytes = [0]
+    workdir = tempfile.mkdtemp(prefix="sitecopy_")
+    out_root = os.path.join(workdir, "site_copy")
+    os.makedirs(out_root, exist_ok=True)
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    })
+    host = urlparse(base).netloc.lower()
+
+    def same_host(u):
+        try:
+            return urlparse(u).netloc.lower() == host
+        except Exception:
+            return False
+
+    def save_response(url, content, content_type=""):
+        if len(downloaded) >= SITECOPY_MAX_FILES:
+            return
+        if total_bytes[0] + len(content) > SITECOPY_MAX_BYTES:
+            return
+        parsed = urlparse(url)
+        path = parsed.path or "/"
+        if path.endswith("/") or not os.path.splitext(path)[1]:
+            if "html" in (content_type or "") or path.endswith("/"):
+                path = path.rstrip("/") + "/index.html"
+            else:
+                path = path.rstrip("/") + "/index.html"
+        # sanitize
+        path = path.lstrip("/")
+        path = re.sub(r"[^\w\-./]", "_", path)
+        full_path = os.path.join(out_root, path)
+        try:
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, "wb") as f:
+                f.write(content)
+            total_bytes[0] += len(content)
+            downloaded.append(path)
+            if progress_cb and len(downloaded) % 5 == 0:
+                try:
+                    progress_cb(len(downloaded))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def crawl(url, depth=0):
+        if depth > SITECOPY_MAX_DEPTH:
+            return
+        if url in visited:
+            return
+        if len(downloaded) >= SITECOPY_MAX_FILES or total_bytes[0] >= SITECOPY_MAX_BYTES:
+            return
+        if not same_host(url):
+            return
+        visited.add(url)
+        try:
+            r = session.get(url, timeout=SITECOPY_TIMEOUT, allow_redirects=True)
+        except Exception:
+            return
+        if r.status_code != 200:
+            return
+        ctype = (r.headers.get("Content-Type") or "").lower()
+        path = urlparse(url).path or "/"
+        ext = os.path.splitext(path)[1].lower()
+        # download page/asset
+        should_save = (
+            not ext
+            or ext in extensions
+            or "text/" in ctype
+            or "javascript" in ctype
+            or "json" in ctype
+            or "image/" in ctype
+            or "css" in ctype
+        )
+        if should_save:
+            save_response(url, r.content, ctype)
+        # only parse html for more links
+        if depth < SITECOPY_MAX_DEPTH and ("html" in ctype or not ext or ext in (".html", ".htm", ".php", ".asp", ".aspx")):
+            try:
+                text = r.text
+            except Exception:
+                return
+            for link in _sitecopy_extract_links(text, url):
+                if link not in visited and same_host(link):
+                    crawl(link, depth + 1)
+
+    try:
+        crawl(base, 0)
+        if not downloaded:
+            shutil.rmtree(workdir, ignore_errors=True)
+            return False, "empty", None, 0
+        # zip
+        zip_path = os.path.join(workdir, "site_copy.zip")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(out_root):
+                for name in files:
+                    fp = os.path.join(root, name)
+                    arc = os.path.relpath(fp, out_root)
+                    zf.write(fp, arc)
+        return True, "ok", zip_path, len(downloaded)
+    except Exception as e:
+        try:
+            shutil.rmtree(workdir, ignore_errors=True)
+        except Exception:
+            pass
+        return False, str(e), None, 0
+
+
+def _process_sitecopy(msg, bot_instance):
+    uid = msg.from_user.id
+    text = (msg.text or "").strip()
+    if not text:
+        bot_instance.reply_to(msg, "❌ Domain gerekli!\nÖrnek: <code>https://ornek.com</code>", parse_mode="HTML")
+        return
+    base = _sitecopy_norm_domain(text)
+    if base == "CANCEL":
+        bot_instance.reply_to(msg, "✅ İptal edildi.")
+        return
+    if not base:
+        bot_instance.reply_to(msg, "❌ Geçersiz domain!\nÖrnek: <code>example.com</code>", parse_mode="HTML")
+        return
+
+    wait = bot_instance.reply_to(
+        msg,
+        f"🌐 <b>Site kopyalanıyor...</b>\n"
+        f"🔗 <code>{base}</code>\n"
+        f"⏳ Bu işlem biraz sürebilir.",
+        parse_mode="HTML"
+    )
+
+    def worker():
+        zip_path = None
+        workdir = None
+        try:
+            def prog(n):
+                try:
+                    bot_instance.edit_message_text(
+                        f"🌐 <b>Site kopyalanıyor...</b>\n🔗 <code>{base}</code>\n📥 İndirilen: <b>{n}</b> dosya",
+                        msg.chat.id, wait.message_id, parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+
+            ok, reason, zip_path, count = sitecopy_run(base, progress_cb=prog)
+            if not ok:
+                if reason == "empty":
+                    err = "❌ İndirilecek dosya bulunamadı / site erişilemedi."
+                else:
+                    err = f"❌ Hata: <code>{html.escape(str(reason)[:200])}</code>"
+                try:
+                    bot_instance.edit_message_text(err, msg.chat.id, wait.message_id, parse_mode="HTML")
+                except Exception:
+                    bot_instance.send_message(msg.chat.id, err, parse_mode="HTML")
+                return
+
+            host = urlparse(base).netloc.replace(":", "_")
+            caption = (
+                f"🌐 <b>Site Copy tamam</b>\n"
+                f"🔗 <code>{html.escape(base)}</code>\n"
+                f"📁 Dosya: <b>{count}</b>\n"
+                f"📦 ZIP arşiv olarak gönderildi\n"
+                f"🤖 Cyber Search | @hackledin"
+            )
+            with open(zip_path, "rb") as f:
+                data = f.read()
+            bot_instance.send_document(
+                msg.chat.id,
+                (f"site_copy_{host}.zip", data),
+                caption=caption,
+                parse_mode="HTML"
+            )
+            try:
+                bot_instance.delete_message(msg.chat.id, wait.message_id)
+            except Exception:
+                pass
+        except Exception as e:
+            log_bot_error("sitecopy", e)
+            try:
+                bot_instance.send_message(msg.chat.id, f"❌ Site copy hatası: <code>{html.escape(str(e)[:200])}</code>", parse_mode="HTML")
+            except Exception:
+                pass
+        finally:
+            if zip_path:
+                workdir = os.path.dirname(zip_path)
+                try:
+                    shutil.rmtree(workdir, ignore_errors=True)
+                except Exception:
+                    pass
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
 def tools_kb(user_id):
     mk = InlineKeyboardMarkup(row_width=2)
     mk.add(_btn("🇹🇷 Türkiye Sorguları", "menu_turkey"), _btn("SearchX 😈", "menu_lmnx"))
@@ -3327,6 +3591,7 @@ def tools_kb(user_id):
         _btn("🆔 Telegram ID Sorgu", "tool_tgid"),
         _btn("🎨 AI Image Generator", "tool_aiimg"),
         _btn("📂 Log Çekme", "tool_log"),
+        _btn("🌐 Site Copy", "tool_sitecopy"),
     )
     mk.add(_btn(s(user_id, "home_btn"), "goto_home"))
     return mk
@@ -6969,6 +7234,26 @@ def register_handlers(bot_instance):
                     except Exception:
                         pass
                 return
+            if data == "tool_sitecopy":
+                try: bot_instance.answer_callback_query(call.id)
+                except: pass
+                clear_user_flow(bot_instance, uid, call.message.chat.id)
+                m = bot_instance.send_message(
+                    call.message.chat.id,
+                    "🌐 <b>Site Copy</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━\n"
+                    "Domain / site URL yaz:\n\n"
+                    "📌 Örnek: <code>https://ornek.com</code>\n"
+                    "📌 Örnek: <code>ornek.com</code>\n\n"
+                    "📦 HTML · CSS · JS · resim vb. indirilir\n"
+                    "📁 Sonuç <b>ZIP</b> olarak gelir\n\n"
+                    "⚠️ Limit: max derinlik 3 · max 60 dosya · 25MB\n"
+                    "İptal: <code>iptal</code>",
+                    parse_mode="HTML"
+                )
+                register_step(bot_instance, m, lambda m: _process_sitecopy(m, bot_instance))
+                return
+
             if data == "tool_log":
                 try: bot_instance.answer_callback_query(call.id)
                 except: pass
