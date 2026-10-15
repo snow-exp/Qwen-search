@@ -8880,13 +8880,34 @@ def _process_ls(msg, key, bot_instance):
 
 def _api_get(url):
     try:
-        r = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=20, verify=False)
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=(10, 35), verify=False)
         if r.status_code == 200:
-            try: return r.json(), None
-            except: return None, f"JSON hatası:\n{r.text[:300]}"
-        return None, f"❌ HTTP {r.status_code}"
-    except requests.Timeout: return None, "⏰ Zaman aşımı!"
-    except Exception as e: return None, f"❌ {e}"
+            try:
+                return r.json(), None
+            except Exception:
+                return None, "❌ API geçersiz yanıt verdi. Tekrar dene."
+        if r.status_code in (502, 503, 504):
+            return None, "⏳ Servis meşgul. Biraz sonra tekrar dene."
+        if r.status_code == 404:
+            return None, "❌ Kayıt bulunamadı."
+        return None, "❌ Sorgu şu an yapılamadı. Tekrar dene."
+    except (requests.Timeout, requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout):
+        return None, "⏳ Sunucu yanıt vermedi. Lütfen tekrar dene."
+    except requests.exceptions.ConnectionError:
+        return None, "🌐 Bağlantı kurulamadı. Lütfen tekrar dene."
+    except Exception as e:
+        err = str(e).lower()
+        if "timed out" in err or "timeout" in err or "connectionpool" in err:
+            return None, "⏳ Sunucu yanıt vermedi. Lütfen tekrar dene."
+        if "connection" in err or "name or service" in err:
+            return None, "🌐 Bağlantı kurulamadı. Lütfen tekrar dene."
+        print(f"[API_GET] {e}")
+        try:
+            log_bot_error("api_get", e)
+        except Exception:
+            pass
+        return None, "❌ Sorgu şu an yapılamadı. Tekrar dene."
+
 
 def _fmt_generic(title, data, queried, header_extra=""):
     now = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
