@@ -2755,7 +2755,7 @@ S = {
         "enter_val": "Değeri gir:",
         "invalid_tc": "❌ Geçersiz TC (11 haneli sayı olmalı)!",
         "invalid_gsm": "❌ Geçersiz GSM (10 haneli)!",
-        "invalid_adsoyad": "❌ Ad ve Soyad gir!",
+        "invalid_adsoyad": "❌ En az ad ve soyad gir! Örn: Ali Yılmaz | Ali Veli Yılmaz",
         "invalid_adaparsel": "❌ İl,İlçe formatında gir!",
         "multi_bot_list": "🤖 <b>BOT LİSTESİ</b>",
         "multi_bot_running": "🟢 Çalışıyor", "multi_bot_stopped": "🔴 Durduruldu",
@@ -3288,7 +3288,7 @@ TURKEY_PROMPTS = {
     "tr": {
         "tc":"🆔 TC Kimlik Numarası girin (11 haneli):",
         "tcpro":"🔍 TC Kimlik Numarası girin (11 haneli):",
-        "adsoyad":"👤 Ad Soyad girin (Örn: Ali Yılmaz):",
+        "adsoyad":"👤 Ad Soyad girin (Örn: Ali Yılmaz | Ali Veli Yılmaz):",
         "aile":"👨‍👩‍👧 TC Kimlik Numarası girin (11 haneli):",
         "ailepro":"👨‍👩‍👧‍👦 TC Kimlik Numarası girin (11 haneli):",
         "sulale":"🌳 TC Kimlik Numarası girin (11 haneli):",
@@ -3334,13 +3334,21 @@ def _sitecopy_norm_domain(domain):
         return None
     if domain.lower() in ("iptal", "cancel", "q", "çık", "cik"):
         return "CANCEL"
-    if not domain.startswith("http"):
+    # www / path temizle, her TLD kabul (.com .tools .net .xyz ...)
+    domain = domain.replace(" ", "")
+    if not domain.startswith("http://") and not domain.startswith("https://"):
         domain = "https://" + domain
     domain = domain.rstrip("/")
     parsed = urlparse(domain)
-    if not parsed.netloc:
+    host = (parsed.netloc or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    # host zorunlu, nokta olmali (ornek.tools, ornek.com.tr)
+    if not host or "." not in host:
         return None
-    return f"{parsed.scheme}://{parsed.netloc}"
+    # sadece host (path/query yok)
+    scheme = parsed.scheme if parsed.scheme in ("http", "https") else "https"
+    return f"{scheme}://{host}"
 
 
 def _sitecopy_extract_links(html_text, base):
@@ -3494,14 +3502,14 @@ def _process_sitecopy(msg, bot_instance):
     uid = msg.from_user.id
     text = (msg.text or "").strip()
     if not text:
-        bot_instance.reply_to(msg, "❌ Domain gerekli!\nÖrnek: <code>https://ornek.com</code>", parse_mode="HTML")
+        bot_instance.reply_to(msg, "❌ Domain gerekli!\nÖrn: <code>ornek.com</code> · <code>ornek.tools</code>", parse_mode="HTML")
         return
     base = _sitecopy_norm_domain(text)
     if base == "CANCEL":
         bot_instance.reply_to(msg, "✅ İptal edildi.")
         return
     if not base:
-        bot_instance.reply_to(msg, "❌ Geçersiz domain!\nÖrnek: <code>example.com</code>", parse_mode="HTML")
+        bot_instance.reply_to(msg, "❌ Geçersiz domain!\nÖrn: <code>ornek.com</code> · <code>ornek.tools</code>", parse_mode="HTML")
         return
 
     wait = bot_instance.reply_to(
@@ -8834,8 +8842,11 @@ def _process_turkey(msg, tool, bot_instance):
     sm = bot_instance.reply_to(msg, s(uid, "processing"))
     api_cfg = TURKIYE_API[tool]; url = api_cfg["url"]
     if tool == "adsoyad":
-        pts = param.split()
-        url = url.replace("{ad}", pts[0]).replace("{soyad}", " ".join(pts[1:]))
+        # Son kelime soyad, onceki kelimeler ad (cift isim destek: Ali Veli Yilmaz)
+        pts = [x for x in param.split() if x]
+        ad = " ".join(pts[:-1])
+        soyad = pts[-1]
+        url = url.replace("{ad}", requests.utils.quote(ad)).replace("{soyad}", requests.utils.quote(soyad))
     elif tool == "gsmtc": url = url.replace("{gsm}", param)
     elif tool == "adaparsel":
         pts = param.split(",")
