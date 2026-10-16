@@ -4883,7 +4883,7 @@ class SendSms:
         adapter = requests.adapters.HTTPAdapter(pool_connections=50, pool_maxsize=50, max_retries=0)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
-        self.req_timeout = 2
+        self.req_timeout = 10
 
     def _ok(self, name):
         with self._lock:
@@ -5633,7 +5633,7 @@ def _sms_worker(phone, mail, mode, limit, interval, stop_event, uid, bot_instanc
         def _tick(force=False):
             nonlocal last_edit
             now = time.time()
-            min_gap = 0.8 if mode == "turbo" else 2.0
+            min_gap = 2.5
             if not force and now - last_edit < min_gap:
                 return
             last_edit = now
@@ -5654,51 +5654,37 @@ def _sms_worker(phone, mail, mode, limit, interval, stop_event, uid, bot_instanc
                         pass
 
         if mode == "turbo":
-            # Her servis icin 2 sabit worker — es zamanli, surekli, session keep-alive
-            svc_list = list(services)
-            workers_per_service = 2
-
-            def _worker_loop(name):
-                while not stop_event.is_set():
-                    if limit and sms.adet >= limit:
-                        stop_event.set()
-                        break
-                    prev = sms.adet
-                    try:
-                        getattr(sms, name)()
-                        if sms.adet == prev:
-                            sms._fail(name)
-                        else:
-                            sms.last_ok = name
-                    except Exception:
-                        try:
-                            sms._fail(name)
-                        except Exception:
-                            pass
-
-            workers = []
-            for fn in svc_list:
-                for _ in range(workers_per_service):
-                    th = threading.Thread(target=_worker_loop, args=(fn,), daemon=True)
-                    workers.append(th)
-                    th.start()
-
+            # Eski turbo: dalga dalga, servis 1x, join ~6sn, timeout 10sn
             while not stop_event.is_set():
+                threads = []
+                for fn in services:
+                    if stop_event.is_set():
+                        break
+                    def _run(name=fn):
+                        prev = sms.adet
+                        try:
+                            getattr(sms, name)()
+                            if sms.adet == prev:
+                                sms._fail(name)
+                            else:
+                                sms.last_ok = name
+                        except Exception:
+                            try:
+                                sms._fail(name)
+                            except Exception:
+                                pass
+                    th = threading.Thread(target=_run, daemon=True)
+                    threads.append(th)
+                    th.start()
+                for th in threads:
+                    try:
+                        th.join(timeout=6)
+                    except Exception:
+                        pass
                 _tick()
                 if limit and sms.adet >= limit:
                     stop_event.set()
                     break
-                time.sleep(0.75)
-            _tick(force=True)
-            try:
-                sms.session.close()
-            except Exception:
-                pass
-            for th in workers:
-                try:
-                    th.join(timeout=0.2)
-                except Exception:
-                    pass
         else:
             while not stop_event.is_set():
                 for fn in services:
