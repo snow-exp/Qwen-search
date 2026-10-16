@@ -2988,6 +2988,11 @@ def hotmail_keyboard(user_id):
     mk.add(_btn(s(user_id, "back_btn"), "goto_tools", "danger", "back"))
     return mk
 
+# LeakSights (opsiyonel — yoksa OSINT menusu bos kalir, bot crash olmaz)
+import os as _os_ls
+LS_BASE = _os_ls.environ.get("LS_BASE", "https://api.leaksights.com").rstrip("/")
+LS_TOKEN = _os_ls.environ.get("LS_TOKEN", "")
+
 def _lsurl(endpoint):
     return f"{LS_BASE}/{endpoint}?token={LS_TOKEN}&text={{value}}"
 
