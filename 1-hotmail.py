@@ -5485,8 +5485,7 @@ def _sms_worker(phone, mail, mode, limit, interval, stop_event, uid, bot_instanc
         def _tick(force=False):
             nonlocal last_edit
             now = time.time()
-            # turbo daha sik guncelle
-            min_gap = 1.2 if mode == "turbo" else 2.5
+            min_gap = 0.8 if mode == "turbo" else 2.0
             if not force and now - last_edit < min_gap:
                 return
             last_edit = now
@@ -5497,13 +5496,14 @@ def _sms_worker(phone, mail, mode, limit, interval, stop_event, uid, bot_instanc
                     _SMS_SESSIONS[uid]["last_ok"] = sms.last_ok
                     _SMS_SESSIONS[uid]["last_fail"] = sms.last_fail
             if status_mid and chat_id:
+                txt = _sms_status_text(phone, mode, sms, len(services), limit)
                 try:
-                    bot_instance.edit_message_text(
-                        _sms_status_text(phone, mode, sms, len(services), limit),
-                        chat_id, status_mid, parse_mode="HTML"
-                    )
+                    bot_instance.edit_message_text(txt, chat_id, status_mid, parse_mode="HTML")
                 except Exception:
-                    pass
+                    try:
+                        bot_instance.edit_message_text(txt, chat_id, status_mid)
+                    except Exception:
+                        pass
 
         if mode == "turbo":
             # Her servis icin 2 sabit worker — es zamanli, surekli, session keep-alive
@@ -5540,7 +5540,8 @@ def _sms_worker(phone, mail, mode, limit, interval, stop_event, uid, bot_instanc
                 if limit and sms.adet >= limit:
                     stop_event.set()
                     break
-                time.sleep(1.0)
+                time.sleep(0.75)
+            _tick(force=True)
             try:
                 sms.session.close()
             except Exception:
@@ -5602,21 +5603,23 @@ def _launch_sms_bomb(uid, phone, mail, mode, limit, interval, bot_instance):
     stop_event = threading.Event()
     services = _get_sms_services()
     mode_txt = "🚀 Turbo" if mode == "turbo" else "⚡ Normal"
-    limit_txt = str(limit) if limit else "Sonsuz ♾️"
-    interval_txt = f"{interval}s" if mode == "normal" else "Maksimum Hız"
-    status_msg = bot_instance.send_message(
-        uid,
-        f"💣 <b>SMS Bomber Başlıyor...</b>\n"
+    status_txt = (
+        "💣 <b>SMS Bomber — Canlı</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
         f"📱 Hedef: <code>{phone}</code>\n"
-        f"📊 Servis: <b>{len(services)}</b>\n"
-        f"⚙️ Mod: <b>{mode_txt}</b>\n"
-        f"🔢 Limit: <b>{limit_txt}</b>\n"
-        f"⏱ Aralık: <b>{interval_txt}</b>\n"
-        f"✅ Başarılı: <b>0</b>\n"
-        f"❌ Başarısız: <b>0</b>\n"
-        f"🛑 /smsstop · 📊 /smsstatus",
-        parse_mode="HTML"
+        f"⚙️ Mod: <b>{mode_txt}</b> · 🔌 {len(services)} servis\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "✅ Başarılı: <b>0</b>\n"
+        "❌ Başarısız: <b>0</b>\n"
+        "📊 Toplam deneme: <b>0</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "🟢 Son OK: <code>—</code>\n"
+        "🔴 Son Fail: <code>—</code>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "🟢 Durum: <b>Aktif</b>\n"
+        "🛑 /smsstop · 📊 /smsstatus"
     )
+    status_msg = bot_instance.send_message(uid, status_txt, parse_mode="HTML")
     t = threading.Thread(
         target=_sms_worker,
         args=(phone, mail, mode, limit, interval, stop_event, uid, bot_instance, status_msg.message_id, uid),
