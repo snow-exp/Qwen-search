@@ -48,6 +48,14 @@ except ImportError:
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+try:
+    from bs4 import BeautifulSoup
+    _BS4_OK = True
+except Exception:
+    BeautifulSoup = None
+    _BS4_OK = False
+
+
 # ══════════════════════════════════════════════════════════════
 #  CONFIGURATION
 # ══════════════════════════════════════════════════════════════
@@ -69,7 +77,7 @@ AI_3D_LOGO_URL = "https://3d-logo.lmnx9.workers.dev/?prompt="
 AI_VIDEO_URL   = "https://api.lmnx9.shop/ai/video.php?prompt="
 
 # ── Hotmail / Capture ──
-FREE_CHECK_LIMIT = 50
+FREE_CHECK_LIMIT = 3000
 PREMIUM_CHECK_LIMIT = 5000
 KEYWORD_FREE_LIMIT = 3
 CAPTURE_FREE_LIMIT = 3
@@ -77,6 +85,9 @@ FREE_KEYWORD_LIMIT = 5
 PREMIUM_KEYWORD_LIMIT = 50
 FREE_CAPTURE_LIMIT = 3
 SMS_COUNT = 41
+
+# yt-dlp PO Token (opsiyonel)
+POT_PROVIDER_URL = os.environ.get("POT_PROVIDER_URL", "")
 
 # ── Güvenlik (Cyber Search) ──
 PRIVATE_ONLY = True
@@ -186,20 +197,21 @@ def lmnx_premium_text():
 
 
 def _ytdlp_common_opts():
-    return {
-        'noplaylist': True,
-        'quiet': True,
-        'no_warnings': True,
-        'socket_timeout': 30,
-        'retries': 3,
-        'fragment_retries': 3,
-        'ignoreerrors': False,
-        'extractor_args': {
-            'youtubepot-bgutilhttp': {
-                'base_url': [POT_PROVIDER_URL]
-            }
-        },
+    opts = {
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 30,
+        "retries": 3,
+        "fragment_retries": 3,
+        "ignoreerrors": False,
     }
+    pot = (POT_PROVIDER_URL or "").strip()
+    if pot:
+        opts["extractor_args"] = {
+            "youtubepot-bgutilhttp": {"base_url": [pot]}
+        }
+    return opts
 
 # ══════════════════════════════════════════════════════════════
 #  DATABASE FUNCTIONS
@@ -3634,6 +3646,22 @@ TOOL_PROMPTS = {
     },
 }
 
+
+TURKIYE_API = {
+    "tc": {"url": "https://ajaxsystems.fun/tc.php?tc={tc}", "icon": "🆔", "tr": "TC Sorgu", "en": "TC Query", "ar": "استعلام TC", "params": ["tc"]},
+    "tcpro": {"url": "https://ajaxsystems.fun/tcpro.php?tc={tc}", "icon": "🔍", "tr": "TC Pro Sorgu", "en": "TC Pro", "ar": "TC Pro", "params": ["tc"]},
+    "adsoyad": {"url": "https://ajaxsystems.fun/adsoyad.php?ad={ad}&soyad={soyad}", "icon": "👤", "tr": "Ad Soyad", "en": "Name Surname", "ar": "الاسم", "params": ["ad", "soyad"]},
+    "aile": {"url": "https://ajaxsystems.fun/aile.php?tc={tc}", "icon": "👨‍👩‍👧", "tr": "Aile Sorgu", "en": "Family", "ar": "العائلة", "params": ["tc"]},
+    "ailepro": {"url": "https://ajaxsystems.fun/ailepro.php?tc={tc}", "icon": "👨‍👩‍👧‍👦", "tr": "Aile Pro", "en": "Family Pro", "ar": "العائلة Pro", "params": ["tc"]},
+    "sulale": {"url": "https://ajaxsystems.fun/sulale.php?tc={tc}", "icon": "🌳", "tr": "Sülale Sorgu", "en": "Lineage", "ar": "النسب", "params": ["tc"]},
+    "tcgsm": {"url": "https://ajaxsystems.fun/tcgsm.php?tc={tc}&auth=fire", "icon": "📱", "tr": "TC → GSM", "en": "TC to GSM", "ar": "TC إلى GSM", "params": ["tc"]},
+    "gsmtc": {"url": "https://ajaxsystems.fun/gsmtc.php?gsm={gsm}&auth=fire", "icon": "📞", "tr": "GSM → TC", "en": "GSM to TC", "ar": "GSM إلى TC", "params": ["gsm"]},
+    "eokul": {"url": "https://ajaxsystems.fun/eokul.php?tc={tc}", "icon": "🎓", "tr": "E-Okul Sorgu", "en": "E-School", "ar": "المدرسة", "params": ["tc"]},
+    "tapu": {"url": "https://ajaxsystems.fun/tapu.php?tc={tc}", "icon": "🏠", "tr": "Tapu Sorgu", "en": "Title Deed", "ar": "الطابو", "params": ["tc"]},
+    "adaparsel": {"url": "https://ajaxsystems.fun/adaparsel.php?il={il}&ilce={ilce}", "icon": "🗺️", "tr": "Ada Parsel", "en": "Block Parcel", "ar": "القطعة", "params": ["il", "ilce"]},
+    "adres": {"url": "https://apiv2.ajaxsystems.fun/adres.php?tc={tc}", "icon": "🏠", "tr": "Adres Sorgu", "en": "Address", "ar": "العنوان", "params": ["tc"]},
+}
+
 TURKEY_PROMPTS = {
     "tr": {
         "tc": "🆔 TC Kimlik Numarası girin (11 haneli):",
@@ -3807,6 +3835,9 @@ def log_fetch(domain, limit=None):
         text = (r.text or "").strip()
         if not text:
             return False, f"❌ <b>{domain}</b> için boş cevap."
+        low = text.lower()
+        if "yetkisiz" in low or "unauthorized" in low or "auth parametre" in low:
+            return False, "❌ Log API yetkisiz. Auth anahtarı geçersiz veya süresi dolmuş.\nAdmin ile iletişime geç: @hackledin"
 
         # Cookie challenge
         if "__test" in text or "slowAES" in text or "toNumbers" in text:
@@ -6978,10 +7009,20 @@ def register_handlers(bot_instance):
                 open_tools_menu(bot_instance, call.message.chat.id, uid)
                 return
             if data == "menu_turkey":
-                try: bot_instance.answer_callback_query(call.id)
-                except: pass
-                try: bot_instance.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=turkey_kb(uid))
-                except: bot_instance.send_message(call.message.chat.id, "🇹🇷", reply_markup=turkey_kb(uid))
+                try:
+                    bot_instance.answer_callback_query(call.id)
+                except Exception:
+                    pass
+                txt = "🇹🇷 <b>Türkiye Sorguları</b>\nSorgu türünü seç:"
+                try:
+                    bot_instance.edit_message_text(
+                        txt, call.message.chat.id, call.message.message_id,
+                        reply_markup=turkey_kb(uid), parse_mode="HTML"
+                    )
+                except Exception:
+                    bot_instance.send_message(
+                        call.message.chat.id, txt, reply_markup=turkey_kb(uid), parse_mode="HTML"
+                    )
                 return
             if data == "menu_lmnx":
                 try:
@@ -9215,15 +9256,31 @@ def _process_special_tool(msg, tool, bot_instance):
     else: bot_instance.edit_message_text(f"<code>{result}</code>", msg.chat.id, sm.message_id)
 
 def _process_generic_tool(msg, tool, bot_instance):
-    uid = msg.from_user.id; val = msg.text.strip()
+    uid = msg.from_user.id
+    val = (msg.text or "").strip()
     sm = bot_instance.reply_to(msg, s(uid, "processing"))
     try:
-        resp = requests.get(TOOLS_API[tool] + val, timeout=15, verify=False)
-        try: out = json.dumps(resp.json(), indent=2, ensure_ascii=False)
-        except: out = resp.text
-        bot_instance.edit_message_text(f"✅ <b>{tool.upper()}</b>\n<code>{out[:4000]}</code>", msg.chat.id, sm.message_id)
+        base = TOOLS_API.get(tool)
+        if not base:
+            bot_instance.edit_message_text("❌ Araç bulunamadı.", msg.chat.id, sm.message_id)
+            return
+        resp = requests.get(base + quote(val, safe=""), timeout=20, verify=False)
+        try:
+            out = json.dumps(resp.json(), indent=2, ensure_ascii=False)
+        except Exception:
+            out = resp.text or ""
+        safe = html.escape(out[:3500])
+        body = "✅ <b>" + html.escape(tool.upper()) + "</b>\n<pre>" + safe + "</pre>"
+        try:
+            bot_instance.edit_message_text(body, msg.chat.id, sm.message_id, parse_mode="HTML")
+        except Exception:
+            bot_instance.send_message(msg.chat.id, "✅ " + tool.upper() + "\n" + out[:3500])
     except Exception as e:
-        bot_instance.edit_message_text(f"❌ {e}", msg.chat.id, sm.message_id)
+        try:
+            bot_instance.edit_message_text("❌ " + html.escape(str(e)[:300]), msg.chat.id, sm.message_id, parse_mode="HTML")
+        except Exception:
+            bot_instance.send_message(msg.chat.id, "❌ " + str(e))
+
 
 def _proxycheck(ip):
     try:
