@@ -4694,7 +4694,7 @@ def register_step(bot_instance, msg, handler):
         except Exception as e:
             print(f"[register_step] {e}")
             try:
-                bot_instance.reply_to(m, f"⚠️ Islem hatasi, tekrar dene.")
+                bot_instance.reply_to(m, f"⚠️ İşlem hatası: {e}")
             except Exception:
                 pass
     try:
@@ -8510,6 +8510,14 @@ def _show_help(chat_id, uid, bot_instance):
     status = "⭐ PREMIUM" if is_premium(uid) else "🆓 Ücretsiz"
     txt = s(uid, "help_content", status=status)
     bot_instance.send_message(chat_id, txt)
+
+
+API_LIST = [
+    {"name": "Wazely API", "url": "https://wazely.vercel.app/api/trlog?site=", "type": "wazely"},
+    {"name": "Solidar API", "url": "https://solidarksystems.alwaysdata.net/log.php?url=", "type": "solidar"},
+    {"name": "RootTurkey API", "url": "https://rootturkey.xyz/log?url=", "type": "rootturkey"},
+]
+YASAKLI = [".gov", ".edu", "cheatglobal", "spin", "bet"]
 
 def _process_combo(msg, bot_instance):
     uid = msg.from_user.id
