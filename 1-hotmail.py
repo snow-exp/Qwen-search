@@ -7164,7 +7164,11 @@ def register_handlers(bot_instance):
                     return
                 if key == "lmnx_mailc" or prompt is None:
                     sm = bot_instance.send_message(call.message.chat.id, f"⏳ {name}...")
-                    _process_lmnx(call.message, key, "", bot_instance, sm)
+                    threading.Thread(
+                        target=_process_lmnx,
+                        args=(call.message, key, "", bot_instance, sm),
+                        daemon=True,
+                    ).start()
                     return
                 USER_STATES[uid] = {"action": f"lmnx_{key}"}
                 m = bot_instance.send_message(
@@ -8864,114 +8868,149 @@ def _process_lmnx_step(msg, key, bot_instance):
         bot_instance.reply_to(msg, ban_block_message(uid), parse_mode="HTML")
         return
     text = (msg.text or "").strip()
-    # State eslesmezse eski handler - yoksay (spam onleme)
     st = USER_STATES.get(uid) or {}
-    if st.get("action") not in (f"lmnx_{key}", None) and st.get("action") and not str(st.get("action","")).startswith("lmnx_"):
+    act = str(st.get("action") or "")
+    # Sadece baska servis state'i varsa yoksay
+    if act and not act.startswith("lmnx_") and act not in (f"lmnx_{key}",):
         return
     clear_user_flow(bot_instance, uid, msg.chat.id)
-    if text.lower() in ("iptal", "cancel", "q"):
-        bot_instance.reply_to(msg, "Iptal edildi.")
+    if text.lower() in ("iptal", "cancel", "q", "cik", "çık"):
+        bot_instance.reply_to(msg, "✅ İptal edildi.")
         return
     if not lmnx_can_use(uid, key):
-        bot_instance.reply_to(msg, f"⭐ LMNX Premium gerekli ({LMNX_PRICE}⭐)")
+        bot_instance.reply_to(msg, f"💎 SearchX Premium gerekli")
         return
     sm = bot_instance.reply_to(msg, "⏳ Sorgulanıyor...")
-    _process_lmnx(msg, key, text, bot_instance, sm)
-
+    # Arka planda calistir — polling/thread kilitlenmesin
+    threading.Thread(
+        target=_process_lmnx,
+        args=(msg, key, text, bot_instance, sm),
+        daemon=True,
+    ).start()
 
 
 def _process_lmnx(msg, key, text, bot_instance, sm=None):
     uid = msg.from_user.id if hasattr(msg, "from_user") else 0
+    chat_id = msg.chat.id
     info = LMNX_APIS.get(key)
     if not info:
+        try:
+            if sm:
+                bot_instance.edit_message_text("❌ Geçersiz araç.", chat_id, sm.message_id)
+        except Exception:
+            pass
         return
     url_t, name, prompt, cat, free = info
     v = (text or "").strip()
     v2 = ""
-    if key in ("lmnx_port", "lmnx_bcryptv", "lmnx_argon2v", "lmnx_hmac", "lmnx_xor", "lmnx_aescbc", "lmnx_aesgcm"):
+    dual = ("lmnx_port", "lmnx_bcryptv", "lmnx_argon2v", "lmnx_hmac", "lmnx_xor", "lmnx_aescbc", "lmnx_aesgcm")
+    if key in dual:
         parts = v.split(None, 1)
-        if len(parts) < 2 and key != "lmnx_mailc":
+        if len(parts) < 2:
             try:
-                bot_instance.edit_message_text(
-                    "❌ Iki deger gerekli (boslukla ayir).",
-                    msg.chat.id, sm.message_id if sm else msg.message_id)
+                if sm:
+                    bot_instance.edit_message_text("❌ İki değer gerekli (boşlukla ayır).", chat_id, sm.message_id)
+                else:
+                    bot_instance.send_message(chat_id, "❌ İki değer gerekli.")
             except Exception:
-                bot_instance.send_message(msg.chat.id, "❌ Iki deger gerekli.")
+                pass
             return
-        if len(parts) >= 2:
-            v, v2 = parts[0], parts[1]
-        else:
-            v, v2 = (parts[0] if parts else ""), ""
+        v, v2 = parts[0], parts[1]
+
+    def _fail(txt):
+        try:
+            if sm:
+                bot_instance.edit_message_text(txt[:4000], chat_id, sm.message_id, parse_mode="HTML")
+            else:
+                bot_instance.send_message(chat_id, txt[:4000], parse_mode="HTML")
+        except Exception:
+            try:
+                bot_instance.send_message(chat_id, txt[:4000])
+            except Exception:
+                pass
+
     try:
         if "{v}" in url_t:
             url = url_t.replace("{v}", quote(v, safe="")).replace("{v2}", quote(v2, safe=""))
         else:
             url = url_t
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=45, verify=False)
+        try:
+            r = requests.get(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Accept": "application/json, text/plain, */*"},
+                timeout=(8, 25),
+                verify=False,
+            )
+        except requests.exceptions.Timeout:
+            _fail("⏳ <b>API zaman aşımı</b>\nSunucu 25 sn içinde yanıt vermedi.\nTekrar dene.")
+            return
+        except requests.exceptions.ConnectionError as e:
+            _fail("🔌 <b>API bağlantı hatası</b>\nSearchX sunucusuna ulaşılamıyor.\nBiraz sonra tekrar dene.")
+            print(f"[LMNX CONN] {key}: {e}")
+            return
+        except Exception as e:
+            _fail(f"❌ Bağlantı: {html.escape(str(e)[:200])}")
+            return
+
         body = r.text or ""
+        if r.status_code >= 400:
+            _fail(f"❌ API HTTP {r.status_code}\n<code>{html.escape(body[:300])}</code>")
+            return
         data = None
         try:
             data = r.json()
         except Exception:
             data = {"result": body[:4000]} if body.strip() else None
+        if data is None:
+            _fail("❌ Boş yanıt.")
+            return
         if isinstance(data, dict) and data.get("error"):
             err = str(data.get("error"))
-            if "too many" in err.lower() or "rate" in err.lower():
-                msg_err = "Cok fazla istek. Biraz bekleyip tekrar dene."
-            elif "trial" in err.lower():
-                msg_err = "API deneme suresi bitmis."
+            low = err.lower()
+            if "too many" in low or "rate" in low:
+                msg_err = "⚠️ Çok fazla istek. Biraz bekleyip tekrar dene."
+            elif "trial" in low:
+                msg_err = "⚠️ API deneme süresi bitmiş."
             else:
-                msg_err = err
-            try:
-                if sm:
-                    bot_instance.edit_message_text(f"⚠️ {msg_err}", msg.chat.id, sm.message_id)
-                else:
-                    bot_instance.send_message(msg.chat.id, f"⚠️ {msg_err}")
-            except Exception:
-                pass
+                msg_err = f"⚠️ {html.escape(err[:300])}"
+            _fail(msg_err)
             return
         data = _lmnx_sanitize(data)
         queried = (v + (" " + v2 if v2 else "")).strip()
         out = _lmnx_format_text(name, queried, data)
-        # txt dosya olarak gonder
-        fname = f"LMNX_{key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        fname = f"SearchX_{key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         try:
             import io
             buf = io.BytesIO(out.encode("utf-8"))
             buf.name = fname
             bot_instance.send_document(
-                msg.chat.id,
+                chat_id,
                 buf,
                 caption=f"🛠 <b>{html.escape(name)}</b>\n👨‍💻 @hackledin",
                 parse_mode="HTML",
             )
             if sm:
                 try:
-                    bot_instance.delete_message(msg.chat.id, sm.message_id)
+                    bot_instance.delete_message(chat_id, sm.message_id)
                 except Exception:
                     pass
         except Exception as e:
-            # fallback: mesaj olarak
             short = out if len(out) < 3500 else out[:3500] + "\n..."
             try:
                 if sm:
                     bot_instance.edit_message_text(
                         f"<pre>{html.escape(short)}</pre>",
-                        msg.chat.id, sm.message_id, parse_mode="HTML"
+                        chat_id, sm.message_id, parse_mode="HTML"
                     )
                 else:
-                    bot_instance.send_message(msg.chat.id, f"<pre>{html.escape(short)}</pre>", parse_mode="HTML")
+                    bot_instance.send_message(chat_id, f"<pre>{html.escape(short)}</pre>", parse_mode="HTML")
             except Exception:
-                bot_instance.send_message(msg.chat.id, short)
+                bot_instance.send_message(chat_id, short[:4000])
+            print(f"[LMNX SEND] {e}")
     except Exception as e:
-        err = f"❌ Hata: {e}"
-        try:
-            if sm:
-                bot_instance.edit_message_text(err, msg.chat.id, sm.message_id)
-            else:
-                bot_instance.send_message(msg.chat.id, err)
-        except Exception:
-            pass
+        print(f"[LMNX FATAL] {key}: {e}")
+        _fail(f"❌ Hata: {html.escape(str(e)[:250])}")
+
 
 
 def _admin_lmnx_give_user(msg, bot_instance):
