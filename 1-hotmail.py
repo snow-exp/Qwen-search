@@ -576,7 +576,7 @@ def set_verified(user_id, val=1):
 
 def captcha_kb():
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn("Ben robot değilim", "captcha_verify", "success", "check"))
+    mk.add(_btn("✅ Ben robot değilim", "captcha_verify", "success"))
     return mk
 
 def captcha_required_message():
@@ -1392,19 +1392,19 @@ def accid_kb(user_id):
         durum = "Admin — Sınırsız Sorgu"
     else:
         durum = f"Free: {free_left}/{ACCID_FREE_LIMIT}  |  Bakiye: {balance}"
-    mk.add(_btn(f"{durum}", "noop", None, "id"))
-    mk.add(_btn("Sorgu Yap", "accid_search", "primary", "search"))
-    mk.add(_btn("Paket Satın Al", "accid_packages", "success", "star"))
-    mk.add(_btn("İstatistiklerim", "accid_my_stats", "primary", "stats"))
-    mk.add(_btn("Geri", "goto_tools", "danger", "back"))
+    mk.add(_btn(f"{durum}", "noop"))
+    mk.add(_btn("🔍 Sorgu Yap", "accid_search", "primary"))
+    mk.add(_btn("Paket Satın Al", "accid_packages", "success"))
+    mk.add(_btn("İstatistiklerim", "accid_my_stats", "primary"))
+    mk.add(_btn("◀️ Geri", "goto_tools", "danger"))
     return mk
 
 def accid_packages_kb():
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn(f"{ACCID_PACKAGE_25} Sorgu — {ACCID_PRICE_25} ⭐", "accid_buy_25", "success", "star"))
-    mk.add(_btn(f"{ACCID_PACKAGE_45} Sorgu — {ACCID_PRICE_45} ⭐", "accid_buy_45", "primary", "star"))
-    mk.add(_btn(f"{ACCID_PACKAGE_95} Sorgu — {ACCID_PRICE_95} ⭐", "accid_buy_95", "danger", "star"))
-    mk.add(_btn("Geri", "tool_tgid", "danger", "back"))
+    mk.add(_btn(f"{ACCID_PACKAGE_25} Sorgu — {ACCID_PRICE_25} ⭐", "accid_buy_25", "success"))
+    mk.add(_btn(f"{ACCID_PACKAGE_45} Sorgu — {ACCID_PRICE_45} ⭐", "accid_buy_45", "primary"))
+    mk.add(_btn(f"{ACCID_PACKAGE_95} Sorgu — {ACCID_PRICE_95} ⭐", "accid_buy_95", "danger"))
+    mk.add(_btn("◀️ Geri", "tool_tgid", "danger"))
     return mk
 
 def tgid_init_user(user_id):
@@ -2548,20 +2548,20 @@ def capture_keyboard(user_id):
     is_prem = is_premium(user_id)
     mk.add(_sep("PLATFORM SEÇİNİZ"))
     if is_prem:
-        mk.add(_btn("Tüm Platformlar", "capture_all", "success", "image"))
+        mk.add(_btn("Tüm Platformlar", "capture_all", "success"))
     else:
-        mk.add(_btn("Tüm Platformlar (Premium)", "noop", "danger", "proxy"))
+        mk.add(_btn("Tüm Platformlar (Premium)", "noop", "danger"))
     for i in range(1, 21, 2):
         if i + 1 <= 20:
             mk.add(
-                _btn(f"{i}. {CAPTURE_NAMES[i]}", f"capture_{i}", "primary", "image"),
-                _btn(f"{i+1}. {CAPTURE_NAMES[i+1]}", f"capture_{i+1}", "primary", "image"),
+                _btn(f"{i}. {CAPTURE_NAMES[i]}", f"capture_{i}", "primary"),
+                _btn(f"{i+1}. {CAPTURE_NAMES[i+1]}", f"capture_{i+1}", "primary"),
             )
         else:
-            mk.add(_btn(f"{i}. {CAPTURE_NAMES[i]}", f"capture_{i}", "primary", "image"))
+            mk.add(_btn(f"{i}. {CAPTURE_NAMES[i]}", f"capture_{i}", "primary"))
     if not is_prem:
-        mk.add(_btn("Premium Satın Al (400⭐)", "buy_premium", "success", "star"))
-    mk.add(_btn("Geri", "goto_hotmail", "danger", "back"))
+        mk.add(_btn("Premium Satın Al (400⭐)", "buy_premium", "success"))
+    mk.add(_btn("◀️ Geri", "goto_hotmail", "danger"))
     return mk
 
 def capture_get_token(email, password):
@@ -2932,13 +2932,8 @@ def _btn(txt, cd, style=None, icon=None):
             b.style = style
         except Exception:
             pass
-    if icon:
-        eid = EMOJI_IDS.get(icon, icon) if not str(icon).isdigit() else str(icon)
-        if eid and str(eid).isdigit():
-            try:
-                b.icon_custom_emoji_id = str(eid)
-            except Exception:
-                pass
+    # Premium custom emoji simdilik kapali (Telegram Premium gerekir)
+    # if icon: ... icon_custom_emoji_id
     return b
 
 # telebot: style + icon_custom_emoji_id JSON'a yaz
@@ -2966,26 +2961,26 @@ def hotmail_keyboard(user_id):
     is_prem = is_premium(user_id)
     mk.add(_sep("📧 HOTMAIL CHECKER"))
     if is_prem:
-        mk.add(_btn("Hotmail Tarama Başlat", "hotmail_start", "success", "hotmail"))
+        mk.add(_btn("🚀 Hotmail Tarama Başlat", "hotmail_start", "success"))
     else:
-        mk.add(_btn("Hotmail Tarama (3000 satır)", "hotmail_start", "primary", "hotmail"))
+        mk.add(_btn("📧 Hotmail Tarama (3000 satır)", "hotmail_start", "primary"))
     mk.add(_sep(f"KEYWORDLER ({len(keywords)}/{limit_text})"))
     for kw in keywords[:10]:
         mk.add(_btn(f"{kw}", "noop", None, "pin" if False else "search"))
-    mk.add(_btn("Keyword Ekle", "hotmail_addkw", "success", "plus"))
-    mk.add(_btn("Keyword Sil", "hotmail_delkw", "danger", "trash"))
-    mk.add(_btn("Keywordleri Sıfırla", "hotmail_resetkw", "danger", "refresh"))
+    mk.add(_btn("Keyword Ekle", "hotmail_addkw", "success"))
+    mk.add(_btn("Keyword Sil", "hotmail_delkw", "danger"))
+    mk.add(_btn("Keywordleri Sıfırla", "hotmail_resetkw", "danger"))
     mk.add(_sep("CAPTURE TOOL"))
     if is_prem:
-        mk.add(_btn("Capture Tarama Başlat", "capture_menu", "success", "image"))
+        mk.add(_btn("Capture Tarama Başlat", "capture_menu", "success"))
     else:
         capture_left = get_capture_limit_text(user_id)
-        mk.add(_btn(f"Capture Tool ({capture_left})", "capture_menu", "primary", "image"))
+        mk.add(_btn(f"Capture Tool ({capture_left})", "capture_menu", "primary"))
     if is_prem:
-        mk.add(_btn("Premium Aktif", "noop", None, "star"))
+        mk.add(_btn("Premium Aktif", "noop"))
     else:
-        mk.add(_btn("Premium Satın Al (400⭐)", "buy_premium", "success", "star"))
-    mk.add(_btn(s(user_id, "back_btn"), "goto_tools", "danger", "back"))
+        mk.add(_btn("Premium Satın Al (400⭐)", "buy_premium", "success"))
+    mk.add(_btn(s(user_id, "back_btn"), "goto_tools", "danger"))
     return mk
 
 # LeakSights (opsiyonel — yoksa OSINT menusu bos kalir, bot crash olmaz)
@@ -3246,31 +3241,31 @@ def lmnx_can_use(user_id, key):
 
 def searchx_admin_give_kb():
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn("1 Günlük", "adm_sx_pkg_1", "primary", "calendar"))
-    mk.add(_btn("1 Haftalık", "adm_sx_pkg_7", "success", "calendar"))
-    mk.add(_btn("1 Aylık", "adm_sx_pkg_30", "primary", "calendar"))
-    mk.add(_btn("Ömür boyu", "adm_sx_pkg_0", "danger", "star"))
-    mk.add(_btn("Kapat", "noop", "danger", "back"))
+    mk.add(_btn("1 Günlük", "adm_sx_pkg_1", "primary"))
+    mk.add(_btn("1 Haftalık", "adm_sx_pkg_7", "success"))
+    mk.add(_btn("1 Aylık", "adm_sx_pkg_30", "primary"))
+    mk.add(_btn("Ömür boyu", "adm_sx_pkg_0", "danger"))
+    mk.add(_btn("Kapat", "noop", "danger"))
     return mk
 
 def searchx_packages_kb():
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn(f"1 Günlük — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day", "primary", "calendar"))
-    mk.add(_btn(f"1 Haftalık — {SEARCHX_PRICE_WEEK}⭐", "buy_sx_week", "success", "calendar"))
-    mk.add(_btn(f"1 Aylık — {SEARCHX_PRICE_MONTH}⭐", "buy_sx_month", "primary", "calendar"))
-    mk.add(_btn("Ömür Boyu — @hackledin", "buy_sx_life", "danger", "star"))
-    mk.add(_btn("İçerik neler?", "lmnx_info", "primary", "search"))
-    mk.add(_btn("SearchX", "menu_lmnx", "danger", "searchx"))
+    mk.add(_btn(f"1 Günlük — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day", "primary"))
+    mk.add(_btn(f"1 Haftalık — {SEARCHX_PRICE_WEEK}⭐", "buy_sx_week", "success"))
+    mk.add(_btn(f"1 Aylık — {SEARCHX_PRICE_MONTH}⭐", "buy_sx_month", "primary"))
+    mk.add(_btn("Ömür Boyu — @hackledin", "buy_sx_life", "danger"))
+    mk.add(_btn("İçerik neler?", "lmnx_info", "primary"))
+    mk.add(_btn("SearchX", "menu_lmnx", "danger"))
     return mk
 
 def lmnx_main_kb(user_id):
     mk = InlineKeyboardMarkup(row_width=1)
     if user_id == ADMIN_ID or is_premium_lmnx(user_id):
-        mk.add(_btn("SearchX Premium Aktif", "noop", None, "star"))
+        mk.add(_btn("SearchX Premium Aktif", "noop"))
     else:
-        mk.add(_btn("SearchX Premium Al", "buy_lmnx", "success", "star"))
+        mk.add(_btn("💎 SearchX Premium Al", "buy_lmnx", "success"))
     mk.add(_btn("Premium içeriği neler?", "lmnx_info", "primary", "info_bw" if False else "search"))
-    mk.add(_btn("Davet et — Kazan", "ref_panel_sx", "success", "gift"))
+    mk.add(_btn("🎁 Davet et — Kazan", "ref_panel_sx", "success"))
     for cat, (title, keys) in LMNX_CATS.items():
         tag = "" if (user_id == ADMIN_ID or is_premium_lmnx(user_id)) else " 🔒"
         # kategori ikonlari
@@ -3279,7 +3274,7 @@ def lmnx_main_kb(user_id):
             "intel": "search", "card": "card", "mail": "hotmail",
         }.get(cat, "searchx")
         mk.add(_btn(f"{title}{tag}", f"lmnx_cat_{cat}", "primary", cat_icon))
-    mk.add(_btn("Geri", "goto_tools", "danger", "back"))
+    mk.add(_btn("◀️ Geri", "goto_tools", "danger"))
     return mk
 
 def lmnx_cat_kb(user_id, cat):
@@ -3299,7 +3294,7 @@ def lmnx_cat_kb(user_id, cat):
         url, name, prompt, c, free = LMNX_APIS[k]
         icon = tool_icons.get(k, "searchx")
         mk.add(_btn(name, f"lmnx_tool_{k}", "primary", icon))
-    mk.add(_btn("SearchX", "menu_lmnx", "danger", "searchx"))
+    mk.add(_btn("SearchX", "menu_lmnx", "danger"))
     return mk
 
 def _sitecopy_norm_domain(domain):
@@ -3559,66 +3554,62 @@ def _process_sitecopy(msg, bot_instance):
 def tools_kb(user_id):
     """
     Renk duzeni:
-      success (yesil) = ana kategoriler / medya / guvenli
-      primary (mavi)  = bilgi / network / arama
-      danger  (kirmizi) = hassas / checker / bomber / log
+      success (yesil) = ana / medya
+      primary (mavi)  = bilgi / network
+      danger  (kirmizi) = hassas
+    Klasik emoji (premium icon kapali).
     """
     mk = InlineKeyboardMarkup(row_width=2)
-    # --- Ana kategoriler (yesil + mavi) ---
     mk.add(
-        _btn("Türkiye Sorguları", "menu_turkey", "success", "turkey"),
-        _btn("SearchX", "menu_lmnx", "primary", "searchx"),
+        _btn("🇹🇷 Türkiye Sorguları", "menu_turkey", "success"),
+        _btn("SearchX 😈", "menu_lmnx", "primary"),
     )
-    # --- Bilgi sorgulari (mavi) ---
     mk.add(
-        _btn("IP Bilgi", "tool_ipinfo", "primary", "internet"),
-        _btn("DNS Sorgu", "tool_dns", "primary", "dns"),
-        _btn("Plaka Sorgu", "tool_plaka", "primary", "search"),
-        _btn("Bahis Sorgu", "tool_bahis", "primary", "stats"),
-        _btn("Eczane", "tool_eczane", "primary", "medicine"),
-        _btn("PreDunyam", "tool_predunyam", "primary", "star"),
-        _btn("Telegram ID", "tool_tgid", "primary", "id"),
-        _btn("EXIF Metadata", "tool_exif", "primary", "exif"),
+        _btn("🌐 IP Bilgi", "tool_ipinfo", "primary"),
+        _btn("🔎 DNS Sorgu", "tool_dns", "primary"),
+        _btn("🚗 Plaka Sorgu", "tool_plaka", "primary"),
+        _btn("⚽ Bahis Sorgu", "tool_bahis", "primary"),
+        _btn("💊 Eczane", "tool_eczane", "primary"),
+        _btn("💎 PreDunyam", "tool_predunyam", "primary"),
+        _btn("🆔 Telegram ID", "tool_tgid", "primary"),
+        _btn("📸 EXIF Metadata", "tool_exif", "primary"),
     )
-    # --- Network / tarama (mavi) ---
     mk.add(
-        _btn("Proxy Check", "tool_proxycheck", "primary", "proxy"),
-        _btn("URL Scan", "tool_urlscan", "primary", "link"),
-        _btn("Site Copy", "tool_sitecopy", "primary", "site"),
-        _btn("MC Bedrock", "tool_bedrock", "primary", "game"),
+        _btn("🛡️ Proxy Check", "tool_proxycheck", "primary"),
+        _btn("🔍 URL Scan", "tool_urlscan", "primary"),
+        _btn("🌐 Site Copy", "tool_sitecopy", "primary"),
+        _btn("🎮 MC Bedrock", "tool_bedrock", "primary"),
     )
-    # --- Medya (yesil) ---
     mk.add(
-        _btn("Video İndir", "tool_video", "success", "video"),
-        _btn("Müzik İndir", "tool_music", "success", "music"),
-        _btn("AI Image", "tool_aiimg", "success", "image"),
-        _btn("Bot Ekle", "tool_addbot", "success", "ai"),
+        _btn("🎥 Video İndir", "tool_video", "success"),
+        _btn("🎵 Müzik İndir", "tool_music", "success"),
+        _btn("🎨 AI Image", "tool_aiimg", "success"),
+        _btn("🤖 Bot Ekle", "tool_addbot", "success"),
     )
-    # --- Hassas / checker (kirmizi) ---
     mk.add(
-        _btn("SMS Bomber", "tool_smsbomb", "danger", "sms"),
-        _btn("Hotmail Checker", "tool_hotmail", "danger", "hotmail"),
-        _btn("Log Çekme", "tool_log", "danger", "log"),
-        _btn("CC Gen (SearchX)", "menu_lmnx", "danger", "card"),
-        _btn("Discord Token", "tool_dctoken", "danger", "discord"),
-        _btn("TG Token", "tool_tgtoken", "danger", "telegram"),
-        _btn("PHP→Python", "tool_php2py", "danger", "key"),
+        _btn("💣 SMS Bomber", "tool_smsbomb", "danger"),
+        _btn("📧 Hotmail Checker", "tool_hotmail", "danger"),
+        _btn("📂 Log Çekme", "tool_log", "danger"),
+        _btn("💳 CC Gen (SearchX)", "menu_lmnx", "danger"),
+        _btn("🤖 Discord Token", "tool_dctoken", "danger"),
+        _btn("✈️ TG Token", "tool_tgtoken", "danger"),
+        _btn("🐍 PHP→Python", "tool_php2py", "danger"),
     )
-    mk.add(_btn("Ana Menü", "goto_home", "success", "home"))
+    mk.add(_btn("🏠 Ana Menü", "goto_home", "success"))
     return mk
 
 def log_kb(user_id):
     mk = InlineKeyboardMarkup(row_width=1)
     durum = get_log_limit_text(user_id)
     if is_premium_log(user_id) or user_id == ADMIN_ID:
-        mk.add(_btn(f"LOG Premium Aktif — {durum}", "noop", None, "star"))
-        mk.add(_btn("Domain Log Çek", "log_search", "primary", "log"))
+        mk.add(_btn(f"LOG Premium Aktif — {durum}", "noop"))
+        mk.add(_btn("🔍 Domain Log Çek", "log_search", "primary"))
     else:
-        mk.add(_btn(f"Hak: {durum}", "noop", None, "log"))
-        mk.add(_btn("Domain Log Çek", "log_search", "primary", "log"))
-        mk.add(_btn(f"LOG Premium ({LOG_PRICE}⭐)", "buy_log", "success", "star"))
-        mk.add(_btn("Davet et — Kazan", "ref_panel_log", "success", "gift"))
-    mk.add(_btn("Geri", "goto_tools", "danger", "back"))
+        mk.add(_btn(f"Hak: {durum}", "noop"))
+        mk.add(_btn("🔍 Domain Log Çek", "log_search", "primary"))
+        mk.add(_btn(f"LOG Premium ({LOG_PRICE}⭐)", "buy_log", "success"))
+        mk.add(_btn("🎁 Davet et — Kazan", "ref_panel_log", "success"))
+    mk.add(_btn("◀️ Geri", "goto_tools", "danger"))
     return mk
 
 def _log_solve_cookie(session, html_text):
@@ -3863,31 +3854,31 @@ def turkey_kb(user_id):
     def lbl(k): return TURKIYE_API[k].get(lang(user_id), TURKIYE_API[k]["tr"])
     mk.add(_sep("👤 KİMLİK"))
     mk.add(
-        _btn(lbl("tc"), "tr_tc", "primary", "id"),
-        _btn(lbl("tcpro"), "tr_tcpro", "success", "search"),
+        _btn(lbl("tc"), "tr_tc", "primary"),
+        _btn(lbl("tcpro"), "tr_tcpro", "success"),
     )
-    mk.add(_btn(lbl("adsoyad"), "tr_adsoyad", "primary", "people"))
+    mk.add(_btn(lbl("adsoyad"), "tr_adsoyad", "primary"))
     mk.add(_sep("👨‍👩‍👧 AİLE"))
     mk.add(
-        _btn(lbl("aile"), "tr_aile", "success", "people"),
-        _btn(lbl("ailepro"), "tr_ailepro", "primary", "people"),
+        _btn(lbl("aile"), "tr_aile", "success"),
+        _btn(lbl("ailepro"), "tr_ailepro", "primary"),
     )
-    mk.add(_btn(lbl("sulale"), "tr_sulale", "success", "people"))
+    mk.add(_btn(lbl("sulale"), "tr_sulale", "success"))
     mk.add(_sep("📱 İLETİŞİM"))
     mk.add(
-        _btn(lbl("tcgsm"), "tr_tcgsm", "primary", "phone"),
-        _btn(lbl("gsmtc"), "tr_gsmtc", "success", "phone"),
+        _btn(lbl("tcgsm"), "tr_tcgsm", "primary"),
+        _btn(lbl("gsmtc"), "tr_gsmtc", "success"),
     )
     mk.add(_sep("🏠 MÜLK / EĞİTİM"))
     mk.add(
-        _btn(lbl("tapu"), "tr_tapu", "danger", "key"),
-        _btn(lbl("eokul"), "tr_eokul", "primary", "search"),
+        _btn(lbl("tapu"), "tr_tapu", "danger"),
+        _btn(lbl("eokul"), "tr_eokul", "primary"),
     )
-    mk.add(_btn(lbl("adaparsel"), "tr_adaparsel", "success", "internet"))
-    mk.add(_btn(lbl("adres"), "tr_adres", "primary", "internet"))
+    mk.add(_btn(lbl("adaparsel"), "tr_adaparsel", "success"))
+    mk.add(_btn(lbl("adres"), "tr_adres", "primary"))
     mk.add(
-        _btn("Araçlar", "goto_tools", "primary", "tools"),
-        _btn("Ana Menü", "goto_home", "success", "home"),
+        _btn("Araçlar", "goto_tools", "primary"),
+        _btn("🏠 Ana Menü", "goto_home", "success"),
     )
     return mk
 
@@ -3912,10 +3903,10 @@ def ls_kb(user_id):
 
 def premium_kb(user_id):
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn("Premium Satın Al (400⭐)", "buy_premium", "success", "star"))
-    mk.add(_btn("OSINT Premium (200⭐)", "buy_osint", "primary", "search"))
-    mk.add(_btn(f"LOG Premium ({LOG_PRICE}⭐)", "buy_log", "danger", "log"))
-    mk.add(_btn("Ana Menü", "goto_home", "success", "home"))
+    mk.add(_btn("Premium Satın Al (400⭐)", "buy_premium", "success"))
+    mk.add(_btn("OSINT Premium (200⭐)", "buy_osint", "primary"))
+    mk.add(_btn(f"LOG Premium ({LOG_PRICE}⭐)", "buy_log", "danger"))
+    mk.add(_btn("🏠 Ana Menü", "goto_home", "success"))
     return mk
 
 def tgid_kb(user_id):
@@ -3928,18 +3919,18 @@ def tgid_kb(user_id):
         durum = "Premium — Sınırsız Sorgu"
     else:
         durum = f"Free: {free_left}/{TGID_FREE_LIMIT}  |  Bakiye: {balance}"
-    mk.add(_btn(f"{durum}", "noop", None, "id"))
-    mk.add(_btn("Sorgu Yap", "tgid_search", "primary", "search"))
-    mk.add(_btn("Paket Satın Al", "tgid_packages", "success", "star"))
-    mk.add(_btn("Geri", "goto_tools", "danger", "back"))
+    mk.add(_btn(f"{durum}", "noop"))
+    mk.add(_btn("🔍 Sorgu Yap", "tgid_search", "primary"))
+    mk.add(_btn("Paket Satın Al", "tgid_packages", "success"))
+    mk.add(_btn("◀️ Geri", "goto_tools", "danger"))
     return mk
 
 def tgid_packages_kb():
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn(f"{TGID_PACKAGE_25} Sorgu — {TGID_PRICE_25} ⭐", "tgid_buy_25", "primary", "star"))
-    mk.add(_btn(f"{TGID_PACKAGE_50} Sorgu — {TGID_PRICE_50} ⭐", "tgid_buy_50", "success", "star"))
-    mk.add(_btn(f"{TGID_PACKAGE_100} Sorgu — {TGID_PRICE_100} ⭐", "tgid_buy_100", "danger", "star"))
-    mk.add(_btn("Geri", "tool_tgid", "danger", "back"))
+    mk.add(_btn(f"{TGID_PACKAGE_25} Sorgu — {TGID_PRICE_25} ⭐", "tgid_buy_25", "primary"))
+    mk.add(_btn(f"{TGID_PACKAGE_50} Sorgu — {TGID_PRICE_50} ⭐", "tgid_buy_50", "success"))
+    mk.add(_btn(f"{TGID_PACKAGE_100} Sorgu — {TGID_PRICE_100} ⭐", "tgid_buy_100", "danger"))
+    mk.add(_btn("◀️ Geri", "tool_tgid", "danger"))
     return mk
 
 def aiimg_kb(user_id):
@@ -3954,21 +3945,21 @@ def aiimg_kb(user_id):
         durum = "Admin — Sınırsız"
     else:
         durum = f"Free: {free_left}  |  Bakiye: {balance}"
-    mk.add(_btn(f"{durum}", "noop", None, "image"))
-    mk.add(_btn("Normal Generate", "aiimg_normal", "primary", "image"))
-    mk.add(_btn("+18 NSFW Generate", "aiimg_nsfw", "danger", "fire"))
-    mk.add(_btn("Hak Satın Al", "aiimg_packages", "success", "star"))
-    mk.add(_btn("Geri", "goto_tools", "danger", "back"))
+    mk.add(_btn(f"{durum}", "noop"))
+    mk.add(_btn("🎨 Normal Generate", "aiimg_normal", "primary"))
+    mk.add(_btn("🔥 +18 NSFW Generate", "aiimg_nsfw", "danger"))
+    mk.add(_btn("Hak Satın Al", "aiimg_packages", "success"))
+    mk.add(_btn("◀️ Geri", "goto_tools", "danger"))
     return mk
 
 def aiimg_packages_kb():
     mk = InlineKeyboardMarkup(row_width=1)
-    mk.add(_btn(f"10 Hak — {AIIMG_PRICE_10} ⭐", "aiimg_buy_10", "success", "star"))
-    mk.add(_btn(f"20 Hak — {AIIMG_PRICE_20} ⭐", "aiimg_buy_20", "success", "star"))
-    mk.add(_btn(f"30 Hak — {AIIMG_PRICE_30} ⭐", "aiimg_buy_30", "primary", "star"))
-    mk.add(_btn(f"50 Hak — {AIIMG_PRICE_50} ⭐", "aiimg_buy_50", "primary", "star"))
-    mk.add(_btn(f"100 Hak — {AIIMG_PRICE_100} ⭐", "aiimg_buy_100", "danger", "star"))
-    mk.add(_btn("Geri", "tool_aiimg", "danger", "back"))
+    mk.add(_btn(f"10 Hak — {AIIMG_PRICE_10} ⭐", "aiimg_buy_10", "success"))
+    mk.add(_btn(f"20 Hak — {AIIMG_PRICE_20} ⭐", "aiimg_buy_20", "success"))
+    mk.add(_btn(f"30 Hak — {AIIMG_PRICE_30} ⭐", "aiimg_buy_30", "primary"))
+    mk.add(_btn(f"50 Hak — {AIIMG_PRICE_50} ⭐", "aiimg_buy_50", "primary"))
+    mk.add(_btn(f"100 Hak — {AIIMG_PRICE_100} ⭐", "aiimg_buy_100", "danger"))
+    mk.add(_btn("◀️ Geri", "tool_aiimg", "danger"))
     return mk
 
 def _aiimg_miaitool(prompt):
@@ -4446,22 +4437,22 @@ def packages_kb(service="sx"):
     mk = InlineKeyboardMarkup(row_width=1)
     service = (service or "sx").lower()
     if service in ("sx", "lmnx", "searchx"):
-        mk.add(_btn(f"SearchX 1 Gün — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day", "primary", "calendar"))
-        mk.add(_btn(f"SearchX 1 Hafta — {SEARCHX_PRICE_WEEK}⭐", "buy_sx_week", "success", "calendar"))
-        mk.add(_btn(f"SearchX 1 Ay — {SEARCHX_PRICE_MONTH}⭐", "buy_sx_month", "primary", "calendar"))
-        mk.add(_btn("Tüm paketler", "buy_lmnx", "success", "star"))
+        mk.add(_btn(f"SearchX 1 Gün — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day", "primary"))
+        mk.add(_btn(f"SearchX 1 Hafta — {SEARCHX_PRICE_WEEK}⭐", "buy_sx_week", "success"))
+        mk.add(_btn(f"SearchX 1 Ay — {SEARCHX_PRICE_MONTH}⭐", "buy_sx_month", "primary"))
+        mk.add(_btn("Tüm paketler", "buy_lmnx", "success"))
     elif service == "log":
-        mk.add(_btn(f"LOG Premium — {LOG_PRICE}⭐", "buy_log", "danger", "log"))
-        mk.add(_btn("Davet et — Kazan", "ref_panel_log", "success", "gift"))
+        mk.add(_btn(f"LOG Premium — {LOG_PRICE}⭐", "buy_log", "danger"))
+        mk.add(_btn("🎁 Davet et — Kazan", "ref_panel_log", "success"))
     elif service == "tgid":
-        mk.add(_btn("TG-ID Paketler", "tgid_packages", "primary", "star"))
+        mk.add(_btn("TG-ID Paketler", "tgid_packages", "primary"))
     elif service == "accid":
-        mk.add(_btn("Account ID Paketler", "accid_packages", "primary", "star"))
+        mk.add(_btn("Account ID Paketler", "accid_packages", "primary"))
     elif service == "aiimg":
-        mk.add(_btn("AI Image Hak Al", "aiimg_packages", "success", "image"))
+        mk.add(_btn("AI Image Hak Al", "aiimg_packages", "success"))
     else:
-        mk.add(_btn(f"SearchX 1 Gün — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day", "primary", "calendar"))
-    mk.add(_btn("Ana Menü", "goto_home", "success", "home"))
+        mk.add(_btn(f"SearchX 1 Gün — {SEARCHX_PRICE_DAY}⭐", "buy_sx_day", "primary"))
+    mk.add(_btn("🏠 Ana Menü", "goto_home", "success"))
     return mk
 
 def quota_denied_text(service="sx", extra=""):
@@ -6455,29 +6446,29 @@ def register_handlers(bot_instance):
             bot_instance.reply_to(msg, s(uid, "admin_only")); return
         mk = InlineKeyboardMarkup(row_width=2)
         mk.add(
-            _btn("Bot İstatistik", "adm_stats", "primary", "stats"),
-            _btn("Bot Durumu", "adm_status", "primary", "stats"),
-            _btn("Bakım Aç/Kapat", "adm_maint", "danger", "warning"),
-            _btn("Hata Özeti", "adm_errors", "danger", "warning"),
-            _btn("Premium Kullanıcılar", "adm_prem_users", "success", "star"),
-            _btn("Premium Log", "adm_prem_log", "primary", "log"),
-            _btn("Premium Ver", "adm_give_premium", "success", "star"),
-            _btn("Premium Kaldır", "adm_remove", "danger", "trash"),
-            _btn("Kullanıcı Banla", "adm_ban", "danger", "ban"),
-            _btn("Ban Kaldır", "adm_unban", "success", "check"),
-            _btn("Yasaklı Listesi", "adm_banned", "primary", "ban"),
-            _btn("Duyuru Gönder", "adm_announce", "success", "announce"),
-            _btn("Tüm Botları Listele", "adm_listbots", "primary", "ai"),
-            _btn("Hotmail Log", "adm_hotmail_log", "primary", "hotmail"),
-            _btn("TG-ID Bakiye Ver", "adm_tgid_give", "success", "id"),
-            _btn("TG-ID Bakiye Al", "adm_tgid_take", "danger", "trash"),
-            _btn("TG-ID Logları", "adm_tgid_logs", "primary", "log"),
-            _btn("TG-ID Satın Almalar", "adm_tgid_purchases", "primary", "dollar"),
-            _btn("LOG Premium Ver", "adm_log_give", "success", "log"),
-            _btn("SMS Premium Ver", "adm_sms_give", "success", "sms"),
-            _btn("SearchX Premium Ver", "adm_lmnx_give", "success", "searchx"),
-            _btn("AI Image Bakiye Ver", "adm_aiimg_give", "success", "image"),
-            _btn("AI Image Bakiye Al", "adm_aiimg_take", "danger", "trash"),
+            _btn("Bot İstatistik", "adm_stats", "primary"),
+            _btn("Bot Durumu", "adm_status", "primary"),
+            _btn("Bakım Aç/Kapat", "adm_maint", "danger"),
+            _btn("Hata Özeti", "adm_errors", "danger"),
+            _btn("Premium Kullanıcılar", "adm_prem_users", "success"),
+            _btn("Premium Log", "adm_prem_log", "primary"),
+            _btn("Premium Ver", "adm_give_premium", "success"),
+            _btn("Premium Kaldır", "adm_remove", "danger"),
+            _btn("Kullanıcı Banla", "adm_ban", "danger"),
+            _btn("Ban Kaldır", "adm_unban", "success"),
+            _btn("Yasaklı Listesi", "adm_banned", "primary"),
+            _btn("Duyuru Gönder", "adm_announce", "success"),
+            _btn("Tüm Botları Listele", "adm_listbots", "primary"),
+            _btn("Hotmail Log", "adm_hotmail_log", "primary"),
+            _btn("TG-ID Bakiye Ver", "adm_tgid_give", "success"),
+            _btn("TG-ID Bakiye Al", "adm_tgid_take", "danger"),
+            _btn("TG-ID Logları", "adm_tgid_logs", "primary"),
+            _btn("TG-ID Satın Almalar", "adm_tgid_purchases", "primary"),
+            _btn("LOG Premium Ver", "adm_log_give", "success"),
+            _btn("SMS Premium Ver", "adm_sms_give", "success"),
+            _btn("SearchX Premium Ver", "adm_lmnx_give", "success"),
+            _btn("AI Image Bakiye Ver", "adm_aiimg_give", "success"),
+            _btn("AI Image Bakiye Al", "adm_aiimg_take", "danger"),
         )
         bot_instance.reply_to(msg, "👑 <b>ADMIN PANELİ</b>", reply_markup=mk)
 
