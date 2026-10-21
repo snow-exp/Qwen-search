@@ -112,6 +112,8 @@ LOG_FREE_LIMIT = 3
 LOG_FREE_MAX = 100
 LOG_API_BASE = "https://site-viphesab.my-board.org/log.php"
 LOG_AUTH = "@gaynotcu"
+# Yeni Log API (oncelikli)
+LOG_API_NEW = "https://logcuyum.pythonanywhere.com/log/site?site="
 
 # ── Davet sistemi ──
 REF_LOG_BONUS_PER = 5      # her basarili davet → +5 log hakki
@@ -3792,23 +3794,115 @@ def _log_solve_cookie(session, html_text):
 
 
 def log_fetch(domain, limit=None):
-    """Log API — cookie korumasını aşar, JSON parse eder. (True, text) döner."""
+    """Log cek — once yeni API, sonra eski. (True, text) doner."""
     try:
-        domain = domain.strip().lower()
+        domain = (domain or "").strip().lower()
         domain = domain.replace("https://", "").replace("http://", "").replace("www.", "")
         domain = domain.split("/")[0].strip()
+        # limit domain.com 100 formati
+        parts = domain.split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            if limit is None:
+                limit = int(parts[1])
+            domain = parts[0]
         if not domain or "." not in domain:
             return False, "❌ Geçersiz domain! Örnek: netflix.com"
-
-        params = {"url": domain, "auth": LOG_AUTH}
-        if limit is not None:
-            params["limit"] = str(limit)
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*",
         }
 
+        def _parse_payload(text, src_name):
+            text = (text or "").strip()
+            if not text:
+                return None
+            data = None
+            try:
+                data = json.loads(text)
+            except Exception:
+                data = None
+            if isinstance(data, dict):
+                if data.get("succes") is False or data.get("success") is False:
+                    err = data.get("error") or data.get("msg") or data.get("message") or str(data)[:200]
+                    return ("ERR", f"❌ API ({src_name}): <code>{html.escape(str(err)[:200])}</code>")
+                veri = (
+                    data.get("loglar")
+                    or data.get("veri")
+                    or data.get("data")
+                    or data.get("logs")
+                    or data.get("result")
+                    or data.get("lines")
+                    or data.get("foundLines")
+                    or data.get("sonuclar")
+                )
+                bulunan = data.get("bulunan") or data.get("count")
+                if isinstance(veri, list):
+                    if not veri:
+                        return ("EMPTY", None)
+                    lines = []
+                    for x in veri:
+                        s = str(x).strip()
+                        if not s:
+                            continue
+                        lines.append(s)
+                    if limit is not None:
+                        lines = lines[: int(limit)]
+                    body = "\n".join(lines)
+                    meta = (
+                        f"# URL: {data.get('url', domain)}\n"
+                        f"# Kaynak: {src_name}\n"
+                        f"# Limit: {limit or data.get('limit', '—')}\n"
+                        f"# Bulunan: {bulunan if bulunan is not None else len(lines)}\n\n"
+                    )
+                    return ("OK", meta + body)
+                if isinstance(veri, str) and veri.strip():
+                    body = veri.strip()
+                    if limit is not None:
+                        body = "\n".join(body.splitlines()[: int(limit)])
+                    return ("OK", body)
+                # dict ama liste yok — text olarak dök
+                pretty = json.dumps(data, ensure_ascii=False, indent=2)
+                return ("OK", pretty)
+            if isinstance(data, list):
+                if not data:
+                    return ("EMPTY", None)
+                lines = [str(x).strip() for x in data if str(x).strip()]
+                if limit is not None:
+                    lines = lines[: int(limit)]
+                return ("OK", "\n".join(lines))
+            # düz text
+            low = text.lower()
+            if any(x in low for x in ["yetkisiz", "unauthorized", "invalid auth", "forbidden"]) and len(text) < 300:
+                return ("ERR", f"❌ API ({src_name}): <code>{html.escape(text[:200])}</code>")
+            if text.startswith("<") and len(text) < 500:
+                return ("ERR", f"❌ API ({src_name}) HTML döndü.")
+            if limit is not None:
+                text = "\n".join(text.splitlines()[: int(limit)])
+            return ("OK", text)
+
+        # 1) YENI API — logcuyum
+        try:
+            url_new = LOG_API_NEW + requests.utils.quote(domain, safe="")
+            r = requests.get(url_new, headers=headers, timeout=(10, 60), verify=False)
+            print(f"[LOG NEW] {domain} status={r.status_code} len={len(r.text or '')}")
+            if r.status_code == 200 and (r.text or "").strip():
+                parsed = _parse_payload(r.text, "LogCuyum")
+                if parsed:
+                    status, payload = parsed
+                    if status == "OK" and payload and payload.strip():
+                        return True, payload
+                    if status == "ERR":
+                        # yeni api hata verdi — eskiye dus
+                        print(f"[LOG NEW] err payload, fallback old")
+                    # EMPTY → eskiye dene
+        except Exception as e:
+            print(f"[LOG NEW] fail: {e}")
+
+        # 2) ESKI API — site-viphesab (cookie challenge destekli)
+        params = {"url": domain, "auth": LOG_AUTH}
+        if limit is not None:
+            params["limit"] = str(limit)
         session = requests.Session()
 
         def _do_get(prms, tries=3):
@@ -3818,91 +3912,47 @@ def log_fetch(domain, limit=None):
                     return session.get(LOG_API_BASE, params=prms, headers=headers, timeout=(15, 120))
                 except requests.exceptions.Timeout as e:
                     last_err = e
-                    print(f"[LOG] timeout attempt {attempt}/{tries} domain={domain}")
                     time.sleep(1.5 * attempt)
                 except requests.exceptions.ConnectionError as e:
                     last_err = e
-                    print(f"[LOG] conn attempt {attempt}/{tries} domain={domain}")
                     time.sleep(1.5 * attempt)
             if last_err:
                 raise last_err
             raise requests.exceptions.Timeout("log api")
 
-        # 1) İlk istek — genelde AES cookie HTML
         r = _do_get(params)
-
-        print(f"[LOG] first {domain} status={r.status_code} len={len(r.text)}")
+        print(f"[LOG OLD] {domain} status={r.status_code} len={len(r.text or '')}")
         text = (r.text or "").strip()
         if not text:
             return False, f"❌ <b>{domain}</b> için boş cevap."
         low = text.lower()
         if "yetkisiz" in low or "unauthorized" in low or "auth parametre" in low:
-            return False, "❌ Log API yetkisiz. Auth anahtarı geçersiz veya süresi dolmuş.\nAdmin ile iletişime geç: @hackledin"
-
-        # Cookie challenge
+            return False, "❌ Log API yetkisiz. Auth anahtarı geçersiz veya süresi dolmuş.\nAdmin: @hackledin"
         if "__test" in text or "slowAES" in text or "toNumbers" in text:
             if not _log_solve_cookie(session, text):
                 return False, "❌ API koruması aşılamadı (cookie)."
             params_retry = dict(params)
             params_retry["i"] = "1"
             r = _do_get(params_retry)
-            print(f"[LOG] retry {domain} status={r.status_code} len={len(r.text)}")
             text = (r.text or "").strip()
             if not text:
-                return False, f"❌ <b>{domain}</b> için sonuç bulunamadı."
-
-        if r.status_code != 200:
-            return False, f"❌ API hatası HTTP {r.status_code}"
-
-        # JSON parse
-        data = None
-        try:
-            data = r.json()
-        except Exception:
-            try:
-                data = json.loads(text)
-            except Exception:
-                data = None
-
-        if isinstance(data, dict):
-            if data.get("succes") is False or data.get("success") is False:
-                err = data.get("error") or data.get("msg") or data.get("message") or str(data)[:200]
-                return False, f"❌ API: <code>{err}</code>"
-
-            veri = data.get("veri") or data.get("data") or data.get("logs") or data.get("result")
-            bulunan = data.get("bulunan") or data.get("count") or (len(veri) if isinstance(veri, list) else 0)
-
-            if isinstance(veri, list):
-                if not veri:
-                    return False, f"❌ <b>{domain}</b> için kayıt bulunamadı."
-                lines = [str(x).strip() for x in veri if str(x).strip()]
-                body = "\n".join(lines)
-                meta = (
-                    f"# URL: {data.get('url', domain)}\n"
-                    f"# Limit: {data.get('limit', limit or '—')}\n"
-                    f"# Bulunan: {bulunan}\n\n"
-                )
-                return True, meta + body
-
-            if isinstance(veri, str) and veri.strip():
-                return True, veri.strip()
-
-            return True, json.dumps(data, ensure_ascii=False, indent=2)
-
-        if text.startswith("<"):
-            return False, "❌ API hâlâ HTML döndü (koruma aşılamadı)."
-
-        low = text.lower()
-        if any(x in low for x in ["yetkisiz", "unauthorized", "invalid auth", "forbidden"]) and len(text) < 300:
-            return False, f"❌ API: <code>{text[:200]}</code>"
-
-        return True, text
+                return False, f"❌ <b>{domain}</b> için boş cevap."
+        parsed = _parse_payload(text, "Legacy")
+        if not parsed:
+            return False, f"❌ <b>{domain}</b> için kayıt bulunamadı."
+        status, payload = parsed
+        if status == "OK" and payload and str(payload).strip():
+            return True, payload
+        if status == "ERR":
+            return False, payload
+        return False, f"❌ <b>{domain}</b> için kayıt bulunamadı."
     except requests.exceptions.Timeout:
         return False, "⏰ API zaman aşımı (sunucu yavaş). Biraz bekleyip tekrar dene."
     except requests.exceptions.ConnectionError:
         return False, "🌐 API bağlantı hatası."
     except Exception as e:
-        return False, f"❌ Hata: <code>{e}</code>"
+        return False, f"❌ Hata: <code>{html.escape(str(e)[:200])}</code>"
+
 
 def log_process(msg, bot_instance):
     uid = msg.from_user.id
