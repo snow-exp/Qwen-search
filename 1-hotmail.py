@@ -115,6 +115,18 @@ LOG_AUTH = "@gaynotcu"
 # Yeni Log API (oncelikli)
 LOG_API_NEW = "https://logcuyum.pythonanywhere.com/log/site?site="
 
+# ── Combo Çekme (bakiye) ──
+COMBO_FREE_LIMIT = 2
+COMBO_FREE_MAX_LINES = 100
+COMBO_PACKAGE_10 = 10
+COMBO_PACKAGE_25 = 25
+COMBO_PACKAGE_50 = 50
+COMBO_PACKAGE_100 = 100
+COMBO_PRICE_10 = 49
+COMBO_PRICE_25 = 99
+COMBO_PRICE_50 = 179
+COMBO_PRICE_100 = 299
+
 # ── Davet sistemi ──
 REF_LOG_BONUS_PER = 5      # her basarili davet → +5 log hakki
 REF_SX_NEEDED     = 5      # her 5 davet → 1 gun SearchX
@@ -343,6 +355,9 @@ def db_init():
     c.execute('''CREATE TABLE IF NOT EXISTS accid_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT,
         target TEXT, status TEXT, detail TEXT, date TEXT)''')
+
+    c.execute("CREATE TABLE IF NOT EXISTS combo_users (user_id INTEGER PRIMARY KEY, free_used INTEGER DEFAULT 0, query_balance INTEGER DEFAULT 0, total_queries INTEGER DEFAULT 0)")
+    c.execute("CREATE TABLE IF NOT EXISTS combo_purchases (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, package TEXT, queries INTEGER, stars INTEGER, date TEXT)")
     c.execute('''CREATE TABLE IF NOT EXISTS referrals (
         invited_id INTEGER PRIMARY KEY,
         inviter_id INTEGER NOT NULL,
@@ -6649,6 +6664,8 @@ def register_handlers(bot_instance):
             _btn("📋 Hotmail Log", "adm_hotmail_log", "primary"),
             _btn("🆔 TG-ID Bakiye Ver", "adm_tgid_give", "success"),
             _btn("➖ TG-ID Bakiye Al", "adm_tgid_take", "danger"),
+            _btn("📦 Combo Bakiye Ver", "adm_combo_give", "success"),
+            _btn("➖ Combo Bakiye Al", "adm_combo_take", "danger"),
             _btn("📋 TG-ID Logları", "adm_tgid_logs", "primary"),
             _btn("💰 TG-ID Satın Almalar", "adm_tgid_purchases", "primary"),
             _btn("📂 LOG Premium Ver", "adm_log_give", "success"),
@@ -6757,6 +6774,16 @@ def register_handlers(bot_instance):
                 USER_STATES.pop(uid, None)
                 _admin_sms_give_user(msg, bot_instance)
                 return
+            
+            if action == "adm_combo_give":
+                USER_STATES.pop(uid, None)
+                _admin_combo_give(msg, bot_instance)
+                return
+            if action == "adm_combo_take":
+                USER_STATES.pop(uid, None)
+                _admin_combo_take(msg, bot_instance)
+                return
+
             if action == "adm_aiimg_give":
                 USER_STATES.pop(uid, None)
                 _admin_aiimg_give(msg, bot_instance)
@@ -6883,7 +6910,18 @@ def register_handlers(bot_instance):
         def _mk(k):
             return (keys.get(k) or "").strip()
         if txt == _mk("combo") or txt.endswith("Combo Çek") or txt.endswith("Combo Check"):
-            m = bot_instance.reply_to(msg, s(uid, "combo_ask"))
+            free_left = max(0, COMBO_FREE_LIMIT - combo_get_free_used(uid))
+            bal = combo_get_balance(uid)
+            ask = s(uid, "combo_ask")
+            info = (
+                str(ask) + "\n"
+                + "━━━━━━━━━━━━━━━━━━━━━\n"
+                + f"🆓 Free: <b>{free_left}</b>/{COMBO_FREE_LIMIT}  |  💰 Bakiye: <b>{bal}</b>\n"
+                + f"💎 Paket: 10→{COMBO_PRICE_10}⭐ · 25→{COMBO_PRICE_25}⭐ · 50→{COMBO_PRICE_50}⭐ · 100→{COMBO_PRICE_100}⭐"
+            )
+            mk = InlineKeyboardMarkup(row_width=1)
+            mk.add(_btn("💎 Paket Satın Al", "combo_packages", "success"))
+            m = bot_instance.reply_to(msg, info, reply_markup=mk, parse_mode="HTML")
             register_step(bot_instance, m, lambda m: _process_combo(m, bot_instance))
         elif txt == _mk("tools") or "Araçlar" in txt or "Araclar" in txt or "Tools" in txt or "الأدوات" in txt or "araç" in txt.lower():
             open_tools_menu(bot_instance, msg.chat.id, uid)
@@ -8100,6 +8138,64 @@ def register_handlers(bot_instance):
                     return
                 _handle_admin_cb(call, data[4:], bot_instance)
                 return
+            
+            if data == "combo_packages":
+                try:
+                    bot_instance.answer_callback_query(call.id)
+                except Exception:
+                    pass
+                free_left = max(0, COMBO_FREE_LIMIT - combo_get_free_used(uid))
+                bal = combo_get_balance(uid)
+                txt = (
+                    "📦 <b>COMBO PAKETLERİ</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━\n"
+                    + f"🆓 Free: <b>{free_left}</b>/{COMBO_FREE_LIMIT}\n"
+                    + f"💰 Bakiye: <b>{bal}</b>\n\n"
+                    + f"• <b>10</b> sorgu → {COMBO_PRICE_10}⭐\n"
+                    + f"• <b>25</b> sorgu → {COMBO_PRICE_25}⭐\n"
+                    + f"• <b>50</b> sorgu → {COMBO_PRICE_50}⭐\n"
+                    + f"• <b>100</b> sorgu → {COMBO_PRICE_100}⭐"
+                )
+                try:
+                    bot_instance.edit_message_text(txt, call.message.chat.id, call.message.message_id, reply_markup=combo_packages_kb(), parse_mode="HTML")
+                except Exception:
+                    bot_instance.send_message(call.message.chat.id, txt, reply_markup=combo_packages_kb(), parse_mode="HTML")
+                return
+
+            if data.startswith("combo_buy_"):
+                pkg = data.replace("combo_buy_", "")
+                pkg_map = {
+                    "10": (COMBO_PACKAGE_10, COMBO_PRICE_10, "10 Sorgu"),
+                    "25": (COMBO_PACKAGE_25, COMBO_PRICE_25, "25 Sorgu"),
+                    "50": (COMBO_PACKAGE_50, COMBO_PRICE_50, "50 Sorgu"),
+                    "100": (COMBO_PACKAGE_100, COMBO_PRICE_100, "100 Sorgu"),
+                }
+                if pkg not in pkg_map:
+                    try:
+                        bot_instance.answer_callback_query(call.id, "❌ Geçersiz!", show_alert=True)
+                    except Exception:
+                        pass
+                    return
+                qty, stars, label = pkg_map[pkg]
+                prices = [LabeledPrice(label=label, amount=stars)]
+                try:
+                    bot_instance.send_invoice(
+                        chat_id=call.message.chat.id,
+                        title=f"📦 {label}",
+                        description=f"{qty} Combo sorgu hakkı",
+                        invoice_payload=f"combo_{pkg}",
+                        provider_token="",
+                        currency="XTR",
+                        prices=prices,
+                    )
+                    bot_instance.answer_callback_query(call.id, "✅ Fatura!")
+                except Exception as e:
+                    try:
+                        bot_instance.answer_callback_query(call.id, f"❌ {e}", show_alert=True)
+                    except Exception:
+                        pass
+                return
+
             if data.startswith("setapi_"):
                 val = data[7:]
                 if val == "default":
@@ -8139,6 +8235,32 @@ def register_handlers(bot_instance):
             return
         username = msg.from_user.username or msg.from_user.first_name or str(uid)
         payload = msg.successful_payment.invoice_payload
+        if payload.startswith("combo_"):
+            pkg = payload.replace("combo_", "")
+            pkg_map = {
+                "10": (COMBO_PACKAGE_10, COMBO_PRICE_10, "10 Sorgu"),
+                "25": (COMBO_PACKAGE_25, COMBO_PRICE_25, "25 Sorgu"),
+                "50": (COMBO_PACKAGE_50, COMBO_PRICE_50, "50 Sorgu"),
+                "100": (COMBO_PACKAGE_100, COMBO_PRICE_100, "100 Sorgu"),
+            }
+            if pkg in pkg_map:
+                qty, stars, label = pkg_map[pkg]
+                combo_add_balance(uid, qty)
+                combo_log_purchase(uid, username, label, qty, stars)
+                bot_instance.reply_to(
+                    msg,
+                    "🎉 <b>Ödeme Başarılı!</b>\n"
+                    f"📦 {label}\n"
+                    f"➕ +{qty} Combo hakkı\n"
+                    f"💰 Bakiye: <b>{combo_get_balance(uid)}</b>",
+                    parse_mode="HTML",
+                )
+                try:
+                    bot_instance.send_message(ADMIN_ID, f"💰 COMBO SATIN ALMA\n👤 @{username}\n📦 {label} — {stars}⭐")
+                except Exception:
+                    pass
+            return
+        
         if payload.startswith("accid_"):
             # Birlesik servis: Account ID satinalmalari Telegram ID bakiyesine yazilir
             pkg = payload.replace("accid_", "")
@@ -8562,6 +8684,108 @@ def _show_help(chat_id, uid, bot_instance):
     bot_instance.send_message(chat_id, txt)
 
 
+
+def combo_init_user(user_id):
+    try:
+        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO combo_users (user_id) VALUES (?)", (user_id,))
+        conn.commit(); conn.close()
+    except Exception:
+        pass
+
+def combo_get(user_id, col):
+    try:
+        combo_init_user(user_id)
+        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        c.execute(f"SELECT {col} FROM combo_users WHERE user_id=?", (user_id,))
+        r = c.fetchone(); conn.close()
+        return r[0] if r else 0
+    except Exception:
+        return 0
+
+def combo_set(user_id, col, val):
+    try:
+        combo_init_user(user_id)
+        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        c.execute(f"UPDATE combo_users SET {col}=? WHERE user_id=?", (val, user_id))
+        conn.commit(); conn.close()
+    except Exception:
+        pass
+
+def combo_get_free_used(user_id):
+    return combo_get(user_id, "free_used") or 0
+
+def combo_get_balance(user_id):
+    return combo_get(user_id, "query_balance") or 0
+
+def combo_get_total(user_id):
+    return combo_get(user_id, "total_queries") or 0
+
+def combo_can_query(user_id):
+    if user_id == ADMIN_ID:
+        return True, "admin"
+    if combo_get_free_used(user_id) < COMBO_FREE_LIMIT:
+        return True, "free"
+    if combo_get_balance(user_id) > 0:
+        return True, "balance"
+    return False, None
+
+def combo_use_query(user_id):
+    if user_id == ADMIN_ID:
+        combo_set(user_id, "total_queries", combo_get_total(user_id) + 1)
+        return True, "admin"
+    free_used = combo_get_free_used(user_id)
+    if free_used < COMBO_FREE_LIMIT:
+        combo_set(user_id, "free_used", free_used + 1)
+        combo_set(user_id, "total_queries", combo_get_total(user_id) + 1)
+        return True, "free"
+    bal = combo_get_balance(user_id)
+    if bal > 0:
+        combo_set(user_id, "query_balance", bal - 1)
+        combo_set(user_id, "total_queries", combo_get_total(user_id) + 1)
+        return True, "balance"
+    return False, None
+
+def combo_add_balance(user_id, amount):
+    cur = combo_get_balance(user_id)
+    combo_set(user_id, "query_balance", cur + int(amount))
+
+def combo_log_purchase(user_id, username, package, queries, stars):
+    try:
+        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        c.execute(
+            "INSERT INTO combo_purchases (user_id,username,package,queries,stars,date) VALUES (?,?,?,?,?,?)",
+            (user_id, username or "", package, queries, stars, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        conn.commit(); conn.close()
+    except Exception:
+        pass
+
+def combo_packages_kb():
+    mk = InlineKeyboardMarkup(row_width=1)
+    mk.add(_btn(f"💎 {COMBO_PACKAGE_10} Sorgu — {COMBO_PRICE_10} ⭐", "combo_buy_10", "primary"))
+    mk.add(_btn(f"💎 {COMBO_PACKAGE_25} Sorgu — {COMBO_PRICE_25} ⭐", "combo_buy_25", "success"))
+    mk.add(_btn(f"💎 {COMBO_PACKAGE_50} Sorgu — {COMBO_PRICE_50} ⭐", "combo_buy_50", "primary"))
+    mk.add(_btn(f"💎 {COMBO_PACKAGE_100} Sorgu — {COMBO_PRICE_100} ⭐", "combo_buy_100", "danger"))
+    mk.add(_btn("◀️ Ana Menü", "goto_home", "danger"))
+    return mk
+
+def combo_no_balance_text(user_id):
+    free_left = max(0, COMBO_FREE_LIMIT - combo_get_free_used(user_id))
+    bal = combo_get_balance(user_id)
+    return (
+        "❌ <b>Combo hakkınız kalmadı!</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        + f"🆓 Free kalan: <b>{free_left}</b>/{COMBO_FREE_LIMIT}\n"
+        + f"💰 Bakiye: <b>{bal}</b>\n\n"
+        + "💎 <b>Paket satın al:</b>\n"
+        + f"• {COMBO_PACKAGE_10} sorgu → <b>{COMBO_PRICE_10}⭐</b>\n"
+        + f"• {COMBO_PACKAGE_25} sorgu → <b>{COMBO_PRICE_25}⭐</b>\n"
+        + f"• {COMBO_PACKAGE_50} sorgu → <b>{COMBO_PRICE_50}⭐</b>\n"
+        + f"• {COMBO_PACKAGE_100} sorgu → <b>{COMBO_PRICE_100}⭐</b>"
+    )
+
+
 API_LIST = [
     {"name": "Wazely API", "url": "https://wazely.vercel.app/api/trlog?site=", "type": "wazely"},
     {"name": "Solidar API", "url": "https://solidarksystems.alwaysdata.net/log.php?url=", "type": "solidar"},
@@ -8571,28 +8795,84 @@ YASAKLI = [".gov", ".edu", "cheatglobal", "spin", "bet"]
 
 def _process_combo(msg, bot_instance):
     uid = msg.from_user.id
-    txt = msg.text.strip().split()
-    if not txt: return
-    domain = txt[0].replace("http://", "").replace("https://", "").split("/")[0]
+    raw = (msg.text or "").strip()
+    if not raw:
+        return
+    if raw.lower() in ("iptal", "cancel", "q", "cik", "çık"):
+        bot_instance.reply_to(msg, "✅ İptal edildi.")
+        return
+    allowed, source = combo_can_query(uid)
+    if not allowed:
+        bot_instance.reply_to(
+            msg,
+            combo_no_balance_text(uid),
+            reply_markup=combo_packages_kb(),
+            parse_mode="HTML",
+        )
+        return
+    txt = raw.split()
+    domain = txt[0].replace("http://", "").replace("https://", "").split("/")[0].strip()
     limit = int(txt[1]) if len(txt) > 1 and txt[1].isdigit() else None
-    sm = bot_instance.reply_to(msg, s(uid, "searching", domain=domain))
-    combos, err, apis = _combo_engine(domain, limit)
-    if err or not combos:
-        bot_instance.edit_message_text(s(uid, "no_result", domain=domain), msg.chat.id, sm.message_id); return
-    update_stats(uid, len(combos))
-    now = datetime.now()
-    fname = f"{domain}_{now.strftime('%Y%m%d_%H%M%S')}.txt"
-    with open(fname, "w", encoding="utf-8") as f:
-        f.write(f"{'=' * 60}\n🕵🏻 Cyber Search — {domain.upper()}\n{'=' * 60}\n")
-        f.write(f" Toplam: {len(combos)}\nTarih: {now.strftime('%d.%m.%Y %H:%M')}\n{'=' * 60}\n")
-        f.write("\n".join(combos))
-        f.write(f"\n{'=' * 60}\n@hackledin\n")
-    with open(fname, "rb") as f:
-        bot_instance.send_document(msg.chat.id, f,
-            caption=s(uid, "combo_caption", domain=domain, count=len(combos), apis=apis))
-    os.remove(fname)
-    try: bot_instance.delete_message(msg.chat.id, sm.message_id)
-    except: pass
+    if source == "free" and (limit is None or limit > COMBO_FREE_MAX_LINES):
+        limit = COMBO_FREE_MAX_LINES
+    try:
+        sm = bot_instance.reply_to(msg, s(uid, "searching", domain=domain))
+    except Exception:
+        sm = bot_instance.reply_to(msg, f"🔍 {domain} aranıyor...")
+    try:
+        combos, err, apis = _combo_engine(domain, limit)
+        if err:
+            try:
+                bot_instance.edit_message_text(f"❌ {err}", msg.chat.id, sm.message_id)
+            except Exception:
+                bot_instance.send_message(msg.chat.id, f"❌ {err}")
+            return
+        if not combos:
+            try:
+                bot_instance.edit_message_text(s(uid, "no_result", domain=domain), msg.chat.id, sm.message_id)
+            except Exception:
+                bot_instance.send_message(msg.chat.id, f"❌ {domain} için sonuç yok.")
+            return
+        combo_use_query(uid)
+        update_stats(uid, len(combos))
+        now = datetime.now()
+        fname = f"{domain}_{now.strftime('%Y%m%d_%H%M%S')}.txt"
+        sep = "=" * 60
+        with open(fname, "w", encoding="utf-8") as f:
+            f.write(sep + "\nCyber Search — " + domain.upper() + "\n" + sep + "\n")
+            f.write(f" Toplam: {len(combos)}\nTarih: {now.strftime('%d.%m.%Y %H:%M')}\n")
+            f.write(f" Kaynak: {apis or '—'}\n" + sep + "\n")
+            f.write("\n".join(combos))
+            f.write("\n" + sep + "\n@hackledin\n")
+        free_left = max(0, COMBO_FREE_LIMIT - combo_get_free_used(uid))
+        bal = combo_get_balance(uid)
+        try:
+            cap = s(uid, "combo_caption", domain=domain, count=len(combos), apis=apis or "—")
+        except Exception:
+            cap = f"✅ {domain} | {len(combos)} hesap"
+        cap = (
+            str(cap) + "\n"
+            + "━━━━━━━━━━━━━━━━━━━━━\n"
+            + f"🆓 Free kalan: <b>{free_left}</b>/{COMBO_FREE_LIMIT}\n"
+            + f"💰 Bakiye: <b>{bal}</b>"
+        )
+        with open(fname, "rb") as f:
+            bot_instance.send_document(msg.chat.id, f, caption=cap[:1024], parse_mode="HTML")
+        try:
+            os.remove(fname)
+        except Exception:
+            pass
+        try:
+            bot_instance.delete_message(msg.chat.id, sm.message_id)
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"[COMBO ERROR] {e}")
+        try:
+            bot_instance.edit_message_text(f"❌ Combo hatası: {e}", msg.chat.id, sm.message_id)
+        except Exception:
+            bot_instance.send_message(msg.chat.id, f"❌ Combo hatası: {e}")
+
 
 def _combo_engine(domain, limit=None):
     for bad in YASAKLI:
@@ -9678,6 +9958,24 @@ def _handle_admin_cb(call, action, bot_instance):
             try: bot_instance.answer_callback_query(call.id)
             except: pass
             return
+        
+        elif action == "combo_give":
+            try:
+                bot_instance.answer_callback_query(call.id)
+            except Exception:
+                pass
+            USER_STATES[uid] = {"action": "adm_combo_give"}
+            bot_instance.send_message(cid, "📦 Combo Bakiye Ver\n<code>USER_ID MIKTAR</code>", parse_mode="HTML")
+            return
+        elif action == "combo_take":
+            try:
+                bot_instance.answer_callback_query(call.id)
+            except Exception:
+                pass
+            USER_STATES[uid] = {"action": "adm_combo_take"}
+            bot_instance.send_message(cid, "➖ Combo Bakiye Al\n<code>USER_ID MIKTAR</code>", parse_mode="HTML")
+            return
+
         elif action == "tgid_give":
             m = bot_instance.send_message(cid, "🆔 <b>TG-ID Bakiye Ver</b>\nFormat: <code>USER_ID MIKTAR</code>\nÖrnek: <code>123456789 50</code>")
             register_step(bot_instance, m, lambda m: _admin_tgid_give(m, bot_instance))
@@ -9906,6 +10204,55 @@ def _admin_announce(msg, bot_instance):
             bot_instance.send_message(user_id, txt); sent += 1; time.sleep(0.1)
         except: failed += 1
     bot_instance.reply_to(msg, f"✅ Duyuru gönderildi!\n✅ Başarılı: {sent}\n❌ Başarısız: {failed}\n👥 Toplam: {sent + failed}")
+
+
+def _admin_combo_give(msg, bot_instance):
+    if msg.from_user.id != ADMIN_ID:
+        return
+    try:
+        parts = msg.text.strip().split()
+        target = int(parts[0]); amount = int(parts[1])
+        if amount <= 0:
+            raise ValueError
+    except Exception:
+        bot_instance.reply_to(msg, "❌ <code>USER_ID MIKTAR</code>", parse_mode="HTML")
+        return
+    add_user(target, "", "")
+    combo_init_user(target)
+    combo_add_balance(target, amount)
+    bot_instance.reply_to(
+        msg,
+        f"✅ +{amount} Combo hakkı: <code>{target}</code>\n💰 Bakiye: <b>{combo_get_balance(target)}</b>",
+        parse_mode="HTML",
+    )
+    try:
+        bot_instance.send_message(
+            target,
+            f"🎁 Admin sana <b>+{amount}</b> Combo hakkı verdi!\n💰 Bakiye: <b>{combo_get_balance(target)}</b>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+def _admin_combo_take(msg, bot_instance):
+    if msg.from_user.id != ADMIN_ID:
+        return
+    try:
+        parts = msg.text.strip().split()
+        target = int(parts[0]); amount = int(parts[1])
+        if amount <= 0:
+            raise ValueError
+    except Exception:
+        bot_instance.reply_to(msg, "❌ <code>USER_ID MIKTAR</code>", parse_mode="HTML")
+        return
+    current = combo_get_balance(target)
+    new_bal = max(0, current - amount)
+    combo_set(target, "query_balance", new_bal)
+    bot_instance.reply_to(
+        msg,
+        f"✅ -{amount} Combo: <code>{target}</code>\n💰 Yeni: <b>{new_bal}</b>",
+        parse_mode="HTML",
+    )
 
 def _admin_tgid_give(msg, bot_instance):
     if msg.from_user.id != ADMIN_ID: return
